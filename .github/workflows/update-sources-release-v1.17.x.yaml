@@ -34,8 +34,8 @@ jobs:
         git config user.name openshift-pipelines-bot
         git config user.email pipelines-extcomm@redhat.com
         git checkout -b actions/update/sources-release-v1.17.x
+        touch head
         pushd upstream
-        touch ../head
         OLD_COMMIT=$(cat ../head)
         NEW_COMMIT=$(git rev-parse HEAD)
         echo Previous commit: ${OLD_COMMIT}
@@ -46,7 +46,7 @@ jobs:
         git rev-parse HEAD > ../head
         popd
         rm -rf upstream/.git
-        git add -f upstream head .konflux
+        git add -f upstream head
 
         if [[ -z $(git status --porcelain --untracked-files=no) ]]; then
           echo "No change, exiting"
