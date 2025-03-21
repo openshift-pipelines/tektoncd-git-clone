@@ -18,6 +18,7 @@ package v1beta1
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/tektoncd/pipeline/pkg/apis/config"
@@ -28,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
@@ -49,8 +49,6 @@ type TaskRunSpec struct {
 	// no more than one of the TaskRef and TaskSpec may be specified.
 	// +optional
 	TaskRef *TaskRef `json:"taskRef,omitempty"`
-	// Specifying PipelineSpec can be disabled by setting
-	// `disable-inline-spec` feature flag..
 	// +optional
 	TaskSpec *TaskSpec `json:"taskSpec,omitempty"`
 	// Used for cancelling a TaskRun (and maybe more later on)
@@ -110,58 +108,11 @@ const (
 	TaskRunCancelledByPipelineTimeoutMsg TaskRunSpecStatusMessage = "TaskRun cancelled as the PipelineRun it belongs to has timed out."
 )
 
-const (
-	// EnabledOnFailureBreakpoint is the value for TaskRunDebug.Breakpoints.OnFailure that means the breakpoint onFailure is enabled
-	EnabledOnFailureBreakpoint = "enabled"
-)
-
 // TaskRunDebug defines the breakpoint config for a particular TaskRun
 type TaskRunDebug struct {
 	// +optional
-	Breakpoints *TaskBreakpoints `json:"breakpoints,omitempty"`
-}
-
-// TaskBreakpoints defines the breakpoint config for a particular Task
-type TaskBreakpoints struct {
-	// if enabled, pause TaskRun on failure of a step
-	// failed step will not exit
-	// +optional
-	OnFailure string `json:"onFailure,omitempty"`
-	// +optional
 	// +listType=atomic
-	BeforeSteps []string `json:"beforeSteps,omitempty"`
-}
-
-// NeedsDebugOnFailure return true if the TaskRun is configured to debug on failure
-func (trd *TaskRunDebug) NeedsDebugOnFailure() bool {
-	if trd.Breakpoints == nil {
-		return false
-	}
-	return trd.Breakpoints.OnFailure == EnabledOnFailureBreakpoint
-}
-
-// NeedsDebugBeforeStep return true if the step is configured to debug before execution
-func (trd *TaskRunDebug) NeedsDebugBeforeStep(stepName string) bool {
-	if trd.Breakpoints == nil {
-		return false
-	}
-	beforeStepSets := sets.NewString(trd.Breakpoints.BeforeSteps...)
-	return beforeStepSets.Has(stepName)
-}
-
-// StepNeedsDebug return true if the step is configured to debug
-func (trd *TaskRunDebug) StepNeedsDebug(stepName string) bool {
-	return trd.NeedsDebugOnFailure() || trd.NeedsDebugBeforeStep(stepName)
-}
-
-// HaveBeforeSteps return true if have any before steps
-func (trd *TaskRunDebug) HaveBeforeSteps() bool {
-	return trd.Breakpoints != nil && len(trd.Breakpoints.BeforeSteps) > 0
-}
-
-// NeedsDebug return true if defined onfailure or have any before, after steps
-func (trd *TaskRunDebug) NeedsDebug() bool {
-	return trd.NeedsDebugOnFailure() || trd.HaveBeforeSteps()
+	Breakpoint []string `json:"breakpoint,omitempty"`
 }
 
 var taskRunCondSet = apis.NewBatchConditionSet()
@@ -386,13 +337,9 @@ func (trs *TaskRunStatus) SetCondition(newCond *apis.Condition) {
 // StepState reports the results of running a step in a Task.
 type StepState struct {
 	corev1.ContainerState `json:",inline"`
-	Name                  string                `json:"name,omitempty"`
-	ContainerName         string                `json:"container,omitempty"`
-	ImageID               string                `json:"imageID,omitempty"`
-	Results               []TaskRunStepResult   `json:"results,omitempty"`
-	Provenance            *Provenance           `json:"provenance,omitempty"`
-	Inputs                []TaskRunStepArtifact `json:"inputs,omitempty"`
-	Outputs               []TaskRunStepArtifact `json:"outputs,omitempty"`
+	Name                  string `json:"name,omitempty"`
+	ContainerName         string `json:"container,omitempty"`
+	ImageID               string `json:"imageID,omitempty"`
 }
 
 // SidecarState reports the results of running a sidecar in a Task.
@@ -441,13 +388,12 @@ type CloudEventDeliveryState struct {
 // +genclient
 // +genreconciler:krshapedlogic=false
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +k8s:openapi-gen=true
 
 // TaskRun represents a single execution of a Task. TaskRuns are how the steps
 // specified in a Task are executed; they specify the parameters and resources
 // used to run the steps in a Task.
 //
-// Deprecated: Please use v1.TaskRun instead.
+// +k8s:openapi-gen=true
 type TaskRun struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
@@ -476,7 +422,7 @@ func (tr *TaskRun) GetPipelineRunPVCName() string {
 	}
 	for _, ref := range tr.GetOwnerReferences() {
 		if ref.Kind == pipeline.PipelineRunControllerName {
-			return ref.Name + "-pvc"
+			return fmt.Sprintf("%s-pvc", ref.Name)
 		}
 	}
 	return ""
@@ -503,14 +449,9 @@ func (tr *TaskRun) HasStarted() bool {
 	return tr.Status.StartTime != nil && !tr.Status.StartTime.IsZero()
 }
 
-// IsSuccessful returns true if the TaskRun's status indicates that it has succeeded.
+// IsSuccessful returns true if the TaskRun's status indicates that it is done.
 func (tr *TaskRun) IsSuccessful() bool {
 	return tr != nil && tr.Status.GetCondition(apis.ConditionSucceeded).IsTrue()
-}
-
-// IsFailure returns true if the TaskRun's status indicates that it has failed.
-func (tr *TaskRun) IsFailure() bool {
-	return tr != nil && tr.Status.GetCondition(apis.ConditionSucceeded).IsFalse()
 }
 
 // IsCancelled returns true if the TaskRun's spec status is set to Cancelled state
