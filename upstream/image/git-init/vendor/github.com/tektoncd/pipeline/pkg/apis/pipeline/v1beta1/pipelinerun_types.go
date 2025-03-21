@@ -38,7 +38,6 @@ import (
 // +genclient
 // +genreconciler:krshapedlogic=false
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +k8s:openapi-gen=true
 
 // PipelineRun represents a single execution of a Pipeline. PipelineRuns are how
 // the graph of Tasks declared in a Pipeline are executed; they specify inputs
@@ -46,7 +45,7 @@ import (
 // Tasks execution such as service account and tolerations. Creating a
 // PipelineRun creates TaskRuns for Tasks in the referenced Pipeline.
 //
-// Deprecated: Please use v1.PipelineRun instead.
+// +k8s:openapi-gen=true
 type PipelineRun struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
@@ -252,8 +251,6 @@ func (pr *PipelineRun) HasVolumeClaimTemplate() bool {
 type PipelineRunSpec struct {
 	// +optional
 	PipelineRef *PipelineRef `json:"pipelineRef,omitempty"`
-	// Specifying PipelineSpec can be disabled by setting
-	// `disable-inline-spec` feature flag..
 	// +optional
 	PipelineSpec *PipelineSpec `json:"pipelineSpec,omitempty"`
 	// Resources is a list of bindings specifying which actual instances of
@@ -434,9 +431,6 @@ type ChildStatusReference struct {
 	runtime.TypeMeta `json:",inline"`
 	// Name is the name of the TaskRun or Run this is referencing.
 	Name string `json:"name,omitempty"`
-	// DisplayName is a user-facing name of the pipelineTask that may be
-	// used to populate a UI.
-	DisplayName string `json:"displayName,omitempty"`
 	// PipelineTaskName is the name of the PipelineTask this is referencing.
 	PipelineTaskName string `json:"pipelineTaskName,omitempty"`
 
@@ -624,9 +618,9 @@ func (pr *PipelineRun) GetTaskRunSpec(pipelineTaskName string) PipelineTaskRunSp
 	}
 	for _, task := range pr.Spec.TaskRunSpecs {
 		if task.PipelineTaskName == pipelineTaskName {
-			// merge podTemplates specified in pipelineRun.spec.taskRunSpecs[].podTemplate and pipelineRun.spec.podTemplate
-			// with taskRunSpecs taking higher precedence
-			s.TaskPodTemplate = pod.MergePodTemplateWithDefault(task.TaskPodTemplate, s.TaskPodTemplate)
+			if task.TaskPodTemplate != nil {
+				s.TaskPodTemplate = task.TaskPodTemplate
+			}
 			if task.TaskServiceAccountName != "" {
 				s.TaskServiceAccountName = task.TaskServiceAccountName
 			}
