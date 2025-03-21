@@ -28,7 +28,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/1-17/git-clone-git-init-rhel9:{{revision}}
+    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/1-17/git-clone-git-init-rhel8:{{revision}}
   - name: dockerfile
     value: .konflux/dockerfiles/git-init.Dockerfile
   - name: prefetch-input
