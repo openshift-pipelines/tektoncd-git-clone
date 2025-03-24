@@ -10,16 +10,16 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "release-v1.17.x" &&
-      ("***".pathChanged() ||
+      == "release-v1.15.x" &&
+      ("upstream/***".pathChanged() || ".konflux/patches/***".pathChanged() || ".konflux/rpms/***".pathChanged() ||
       ".konflux/dockerfiles/git-init.Dockerfile".pathChanged() ||
-      ".tekton/tektoncd-git-clone-1-17-git-init-push.yaml".pathChanged())
+      ".tekton/tektoncd-git-clone-1-15-git-init-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: openshift-pipelines-1-17
-    appstudio.openshift.io/component: tektoncd-git-clone-1-17-git-init
+    appstudio.openshift.io/application: openshift-pipelines-1-15
+    appstudio.openshift.io/component: tektoncd-git-clone-1-15-git-init
     pipelines.appstudio.openshift.io/type: build
-  name: tektoncd-git-clone-1-17-git-init-on-push
+  name: tektoncd-git-clone-1-15-git-init-on-push
   namespace: tekton-ecosystem-tenant
 spec:
   params:
@@ -28,7 +28,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/1-17/git-clone-git-init-rhel8:{{revision}}
+    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/1-15/git-clone-git-init-rhel8:{{revision}}
   - name: dockerfile
     value: .konflux/dockerfiles/git-init.Dockerfile
   - name: prefetch-input
