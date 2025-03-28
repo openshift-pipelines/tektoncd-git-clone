@@ -19,6 +19,8 @@ ENV BINARY=git-init \
     KO_APP=/ko-app \
     KO_DATA_PATH=/kodata
 
+RUN dnf install -y openssh-clients git git-lfs shadow-utils
+
 COPY --from=builder /tmp/tektoncd-catalog-git-clone ${KO_APP}/${BINARY}
 COPY head ${KO_DATA_PATH}/HEAD
 
