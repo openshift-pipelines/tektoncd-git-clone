@@ -16,7 +16,7 @@ metadata:
       ".tekton/tektoncd-git-clone-1-14-git-init-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: openshift-pipelines-1-14
+    appstudio.openshift.io/application: openshift-pipelines-core-1-14
     appstudio.openshift.io/component: tektoncd-git-clone-1-14-git-init
     pipelines.appstudio.openshift.io/type: build
   name: tektoncd-git-clone-1-14-git-init-on-push
