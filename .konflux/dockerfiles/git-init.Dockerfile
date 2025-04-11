@@ -9,11 +9,10 @@ COPY .konflux/patches patches/
 RUN set -e; for f in patches/*.patch; do echo ${f}; [[ -f ${f} ]] || continue; git apply ${f}; done
 COPY head HEAD
 ENV GODEBUG="http2server=0"
-ENV GOEXPERIMENT=strictfipsruntime
-RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=${CHANGESET_REV:0:7}'" -mod=vendor -tags strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
+RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=${CHANGESET_REV:0:7}'" -mod=vendor -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
-ARG VERSION=git-init-1.17
+ARG VERSION=git-init-1.15.3
 
 ENV BINARY=git-init \
     KO_APP=/ko-app \
