@@ -1,4 +1,4 @@
-# Generated for Release 1.15 by openshift-pipelines/hack. DO NOT EDIT.
+# Generated for Release  by openshift-pipelines/hack. DO NOT EDIT.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
@@ -13,13 +13,14 @@ metadata:
       == "release-v1.15.x" &&
       ("upstream/***".pathChanged() || ".konflux/patches/***".pathChanged() || ".konflux/rpms/***".pathChanged() ||
       ".konflux/dockerfiles/git-init.Dockerfile".pathChanged() ||
-      ".tekton/tektoncd-git-clone-1-15-git-init-push.yaml".pathChanged())
+      ".tekton/docker-build-ta.yaml".pathChanged() ||
+      ".tekton/tektoncd-git-clone--git-init-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: openshift-pipelines-core-1-15
-    appstudio.openshift.io/component: tektoncd-git-clone-1-15-git-init
+    appstudio.openshift.io/application: openshift-pipelines-core-
+    appstudio.openshift.io/component: tektoncd-git-clone--git-init
     pipelines.appstudio.openshift.io/type: build
-  name: tektoncd-git-clone-1-15-git-init-on-push
+  name: tektoncd-git-clone--git-init-on-push
   namespace: tekton-ecosystem-tenant
 spec:
   params:
@@ -28,7 +29,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/1-15/git-init-rhel8:{{revision}}
+    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant//git-init-rhel9:{{revision}}
   - name: dockerfile
     value: .konflux/dockerfiles/git-init.Dockerfile
   - name: prefetch-input
