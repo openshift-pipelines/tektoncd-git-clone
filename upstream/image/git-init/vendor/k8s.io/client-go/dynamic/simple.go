@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,16 +29,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/util/consistencydetector"
-	"k8s.io/client-go/util/watchlist"
-	"k8s.io/klog/v2"
 )
 
-type DynamicClient struct {
-	client rest.Interface
+type dynamicClient struct {
+	client *rest.RESTClient
 }
 
-var _ Interface = &DynamicClient{}
+var _ Interface = &dynamicClient{}
 
 // ConfigFor returns a copy of the provided config with the
 // appropriate dynamic client defaults set.
@@ -54,14 +50,9 @@ func ConfigFor(inConfig *rest.Config) *rest.Config {
 	return config
 }
 
-// New creates a new DynamicClient for the given RESTClient.
-func New(c rest.Interface) *DynamicClient {
-	return &DynamicClient{client: c}
-}
-
-// NewForConfigOrDie creates a new DynamicClient for the given config and
+// NewForConfigOrDie creates a new Interface for the given config and
 // panics if there is an error in the config.
-func NewForConfigOrDie(c *rest.Config) *DynamicClient {
+func NewForConfigOrDie(c *rest.Config) Interface {
 	ret, err := NewForConfig(c)
 	if err != nil {
 		panic(err)
@@ -72,7 +63,7 @@ func NewForConfigOrDie(c *rest.Config) *DynamicClient {
 // NewForConfig creates a new dynamic client or returns an error.
 // NewForConfig is equivalent to NewForConfigAndClient(c, httpClient),
 // where httpClient was generated with rest.HTTPClientFor(c).
-func NewForConfig(inConfig *rest.Config) (*DynamicClient, error) {
+func NewForConfig(inConfig *rest.Config) (Interface, error) {
 	config := ConfigFor(inConfig)
 
 	httpClient, err := rest.HTTPClientFor(config)
@@ -84,7 +75,7 @@ func NewForConfig(inConfig *rest.Config) (*DynamicClient, error) {
 
 // NewForConfigAndClient creates a new dynamic client for the given config and http client.
 // Note the http client provided takes precedence over the configured transport values.
-func NewForConfigAndClient(inConfig *rest.Config, h *http.Client) (*DynamicClient, error) {
+func NewForConfigAndClient(inConfig *rest.Config, h *http.Client) (Interface, error) {
 	config := ConfigFor(inConfig)
 	// for serializing the options
 	config.GroupVersion = &schema.GroupVersion{}
@@ -94,16 +85,16 @@ func NewForConfigAndClient(inConfig *rest.Config, h *http.Client) (*DynamicClien
 	if err != nil {
 		return nil, err
 	}
-	return &DynamicClient{client: restClient}, nil
+	return &dynamicClient{client: restClient}, nil
 }
 
 type dynamicResourceClient struct {
-	client    *DynamicClient
+	client    *dynamicClient
 	namespace string
 	resource  schema.GroupVersionResource
 }
 
-func (c *DynamicClient) Resource(resource schema.GroupVersionResource) NamespaceableResourceInterface {
+func (c *dynamicClient) Resource(resource schema.GroupVersionResource) NamespaceableResourceInterface {
 	return &dynamicResourceClient{client: c, resource: resource}
 }
 
@@ -128,9 +119,6 @@ func (c *dynamicResourceClient) Create(ctx context.Context, obj *unstructured.Un
 		if len(name) == 0 {
 			return nil, fmt.Errorf("name is required")
 		}
-	}
-	if err := validateNamespaceWithOptionalName(c.namespace, name); err != nil {
-		return nil, err
 	}
 
 	result := c.client.client.
@@ -163,9 +151,6 @@ func (c *dynamicResourceClient) Update(ctx context.Context, obj *unstructured.Un
 	name := accessor.GetName()
 	if len(name) == 0 {
 		return nil, fmt.Errorf("name is required")
-	}
-	if err := validateNamespaceWithOptionalName(c.namespace, name); err != nil {
-		return nil, err
 	}
 	outBytes, err := runtime.Encode(unstructured.UnstructuredJSONScheme, obj)
 	if err != nil {
@@ -203,9 +188,7 @@ func (c *dynamicResourceClient) UpdateStatus(ctx context.Context, obj *unstructu
 	if len(name) == 0 {
 		return nil, fmt.Errorf("name is required")
 	}
-	if err := validateNamespaceWithOptionalName(c.namespace, name); err != nil {
-		return nil, err
-	}
+
 	outBytes, err := runtime.Encode(unstructured.UnstructuredJSONScheme, obj)
 	if err != nil {
 		return nil, err
@@ -237,9 +220,6 @@ func (c *dynamicResourceClient) Delete(ctx context.Context, name string, opts me
 	if len(name) == 0 {
 		return fmt.Errorf("name is required")
 	}
-	if err := validateNamespaceWithOptionalName(c.namespace, name); err != nil {
-		return err
-	}
 	deleteOptionsByte, err := runtime.Encode(deleteOptionsCodec.LegacyCodec(schema.GroupVersion{Version: "v1"}), &opts)
 	if err != nil {
 		return err
@@ -255,10 +235,6 @@ func (c *dynamicResourceClient) Delete(ctx context.Context, name string, opts me
 }
 
 func (c *dynamicResourceClient) DeleteCollection(ctx context.Context, opts metav1.DeleteOptions, listOptions metav1.ListOptions) error {
-	if err := validateNamespaceWithOptionalName(c.namespace); err != nil {
-		return err
-	}
-
 	deleteOptionsByte, err := runtime.Encode(deleteOptionsCodec.LegacyCodec(schema.GroupVersion{Version: "v1"}), &opts)
 	if err != nil {
 		return err
@@ -278,9 +254,6 @@ func (c *dynamicResourceClient) Get(ctx context.Context, name string, opts metav
 	if len(name) == 0 {
 		return nil, fmt.Errorf("name is required")
 	}
-	if err := validateNamespaceWithOptionalName(c.namespace, name); err != nil {
-		return nil, err
-	}
 	result := c.client.client.Get().AbsPath(append(c.makeURLSegments(name), subresources...)...).SpecificallyVersionedParams(&opts, dynamicParameterCodec, versionV1).Do(ctx)
 	if err := result.Error(); err != nil {
 		return nil, err
@@ -297,27 +270,6 @@ func (c *dynamicResourceClient) Get(ctx context.Context, name string, opts metav
 }
 
 func (c *dynamicResourceClient) List(ctx context.Context, opts metav1.ListOptions) (*unstructured.UnstructuredList, error) {
-	if watchListOptions, hasWatchListOptionsPrepared, watchListOptionsErr := watchlist.PrepareWatchListOptionsFromListOptions(opts); watchListOptionsErr != nil {
-		klog.Warningf("Failed preparing watchlist options for %v, falling back to the standard LIST semantics, err = %v", c.resource, watchListOptionsErr)
-	} else if hasWatchListOptionsPrepared {
-		result, err := c.watchList(ctx, watchListOptions)
-		if err == nil {
-			consistencydetector.CheckWatchListFromCacheDataConsistencyIfRequested(ctx, fmt.Sprintf("watchlist request for %v", c.resource), c.list, opts, result)
-			return result, nil
-		}
-		klog.Warningf("The watchlist request for %v ended with an error, falling back to the standard LIST semantics, err = %v", c.resource, err)
-	}
-	result, err := c.list(ctx, opts)
-	if err == nil {
-		consistencydetector.CheckListFromCacheDataConsistencyIfRequested(ctx, fmt.Sprintf("list request for %v", c.resource), c.list, opts, result)
-	}
-	return result, err
-}
-
-func (c *dynamicResourceClient) list(ctx context.Context, opts metav1.ListOptions) (*unstructured.UnstructuredList, error) {
-	if err := validateNamespaceWithOptionalName(c.namespace); err != nil {
-		return nil, err
-	}
 	result := c.client.client.Get().AbsPath(c.makeURLSegments("")...).SpecificallyVersionedParams(&opts, dynamicParameterCodec, versionV1).Do(ctx)
 	if err := result.Error(); err != nil {
 		return nil, err
@@ -341,32 +293,8 @@ func (c *dynamicResourceClient) list(ctx context.Context, opts metav1.ListOption
 	return list, nil
 }
 
-// watchList establishes a watch stream with the server and returns an unstructured list.
-func (c *dynamicResourceClient) watchList(ctx context.Context, opts metav1.ListOptions) (*unstructured.UnstructuredList, error) {
-	if err := validateNamespaceWithOptionalName(c.namespace); err != nil {
-		return nil, err
-	}
-
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-
-	result := &unstructured.UnstructuredList{}
-	err := c.client.client.Get().AbsPath(c.makeURLSegments("")...).
-		SpecificallyVersionedParams(&opts, dynamicParameterCodec, versionV1).
-		Timeout(timeout).
-		WatchList(ctx).
-		Into(result)
-
-	return result, err
-}
-
 func (c *dynamicResourceClient) Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
 	opts.Watch = true
-	if err := validateNamespaceWithOptionalName(c.namespace); err != nil {
-		return nil, err
-	}
 	return c.client.client.Get().AbsPath(c.makeURLSegments("")...).
 		SpecificallyVersionedParams(&opts, dynamicParameterCodec, versionV1).
 		Watch(ctx)
@@ -375,9 +303,6 @@ func (c *dynamicResourceClient) Watch(ctx context.Context, opts metav1.ListOptio
 func (c *dynamicResourceClient) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (*unstructured.Unstructured, error) {
 	if len(name) == 0 {
 		return nil, fmt.Errorf("name is required")
-	}
-	if err := validateNamespaceWithOptionalName(c.namespace, name); err != nil {
-		return nil, err
 	}
 	result := c.client.client.
 		Patch(pt).
@@ -402,9 +327,6 @@ func (c *dynamicResourceClient) Patch(ctx context.Context, name string, pt types
 func (c *dynamicResourceClient) Apply(ctx context.Context, name string, obj *unstructured.Unstructured, opts metav1.ApplyOptions, subresources ...string) (*unstructured.Unstructured, error) {
 	if len(name) == 0 {
 		return nil, fmt.Errorf("name is required")
-	}
-	if err := validateNamespaceWithOptionalName(c.namespace, name); err != nil {
-		return nil, err
 	}
 	outBytes, err := runtime.Encode(unstructured.UnstructuredJSONScheme, obj)
 	if err != nil {
@@ -442,20 +364,6 @@ func (c *dynamicResourceClient) Apply(ctx context.Context, name string, obj *uns
 }
 func (c *dynamicResourceClient) ApplyStatus(ctx context.Context, name string, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 	return c.Apply(ctx, name, obj, opts, "status")
-}
-
-func validateNamespaceWithOptionalName(namespace string, name ...string) error {
-	if msgs := rest.IsValidPathSegmentName(namespace); len(msgs) != 0 {
-		return fmt.Errorf("invalid namespace %q: %v", namespace, msgs)
-	}
-	if len(name) > 1 {
-		panic("Invalid number of names")
-	} else if len(name) == 1 {
-		if msgs := rest.IsValidPathSegmentName(name[0]); len(msgs) != 0 {
-			return fmt.Errorf("invalid resource name %q: %v", name[0], msgs)
-		}
-	}
-	return nil
 }
 
 func (c *dynamicResourceClient) makeURLSegments(name string) []string {
