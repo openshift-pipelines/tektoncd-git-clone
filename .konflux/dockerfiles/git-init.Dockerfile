@@ -28,8 +28,8 @@ RUN chgrp -R 0 ${KO_APP} && \
     chmod -R g+rwX ${KO_APP}
 
 LABEL \
-      com.redhat.component="openshift-pipelines-git-init-rhel8-container" \
-      name="openshift-pipelines/pipelines-git-init-rhel8" \
+      com.redhat.component="openshift-pipelines-git-init-rhel9-container" \
+      name="openshift-pipelines/pipelines-git-init-rhel9" \
       version=$VERSION \
       summary="Red Hat OpenShift Pipelines Git-init" \
       maintainer="pipelines-extcomm@redhat.com" \
