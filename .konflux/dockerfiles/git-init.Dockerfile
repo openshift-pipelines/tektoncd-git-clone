@@ -1,6 +1,6 @@
 ARG GO_BUILDER=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23
 # note: use ubi image instead of ubi-minimal to avoid issues openssh-clients needing deps only available in ubi
-ARG RUNTIME=registry.access.redhat.com/ubi9/ubi@sha256:304b50df1ea4db9706d8a30f4bbf26f582936ebc80c7e075c72ff2af99292a54
+ARG RUNTIME=registry.redhat.io/ubi9/ubi-minimal@sha256:f172b3082a3d1bbe789a1057f03883c1113243564f01cd3020e27548b911d3f8
 
 FROM $GO_BUILDER AS builder
 
@@ -11,7 +11,7 @@ RUN set -e; for f in patches/*.patch; do echo ${f}; [[ -f ${f} ]] || continue; g
 COPY head HEAD
 ENV GODEBUG="http2server=0"
 ENV GOEXPERIMENT=strictfipsruntime
-RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
+RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags disable_gcp -tags strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
 ARG VERSION=git-init-1.19
@@ -20,7 +20,7 @@ ENV BINARY=git-init \
     KO_APP=/ko-app \
     KO_DATA_PATH=/kodata
 
-RUN dnf install -y openssh-clients git git-lfs shadow-utils
+RUN microdnf install -y openssh-clients git git-lfs shadow-utils
 
 COPY --from=builder /tmp/tektoncd-catalog-git-clone ${KO_APP}/${BINARY}
 COPY head ${KO_DATA_PATH}/HEAD
