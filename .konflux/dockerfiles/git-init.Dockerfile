@@ -10,8 +10,7 @@ RUN set -e; for f in patches/*.patch; do echo ${f}; [[ -f ${f} ]] || continue; g
 COPY head HEAD
 ENV GODEBUG="http2server=0"
 ENV GOEXPERIMENT=strictfipsruntime
-ENV CGO_ENABLED=0
-RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags disable_gcp -tags strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
+RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags disable_gcp,strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
 ARG VERSION=git-init-1.19
