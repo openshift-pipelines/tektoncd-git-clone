@@ -1,6 +1,6 @@
 ARG GO_BUILDER=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23
 # note: use ubi image instead of ubi-minimal to avoid issues openssh-clients needing deps only available in ubi
-ARG RUNTIME=registry.access.redhat.com/ubi9/ubi@sha256:304b50df1ea4db9706d8a30f4bbf26f582936ebc80c7e075c72ff2af99292a54
+ARG RUNTIME=registry.access.redhat.com/ubi9/ubi@sha256:8851294389a8641bd6efcd60f615c69e54fb0e2216ec8259448b35e3d9a11b06
 
 FROM $GO_BUILDER AS builder
 
