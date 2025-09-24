@@ -29,6 +29,7 @@ LABEL \
       com.redhat.component="openshift-pipelines-git-init-rhel8-container" \
       name="openshift-pipelines/pipelines-git-init-rhel8" \
       version=$VERSION \
+      cpe="cpe:/a:redhat:openshift_pipelines:1.15::el8" \
       summary="Red Hat OpenShift Pipelines Git-init" \
       maintainer="pipelines-extcomm@redhat.com" \
       description="Red Hat OpenShift Pipelines Git-init" \
