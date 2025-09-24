@@ -35,7 +35,8 @@ LABEL \
       description="Red Hat OpenShift Pipelines Git-init" \
       io.k8s.display-name="Red Hat OpenShift Pipelines Git-init" \
       io.k8s.description="git-init is a binary that makes it easy to clone a repository from a Tekton Task. It is usually used via the git-clone Tasks." \
-      io.openshift.tags="pipelines,tekton,openshift"
+      io.openshift.tags="pipelines,tekton,openshift" \
+      cpe="cpe:/a:redhat:openshift_pipelines:1.17::el8"
 
 RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot -d /home/git -m nonroot
 USER 65532
