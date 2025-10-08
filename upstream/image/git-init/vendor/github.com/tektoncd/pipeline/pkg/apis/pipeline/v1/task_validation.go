@@ -21,18 +21,14 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
-	"strings"
-	"time"
 
 	"github.com/tektoncd/pipeline/pkg/apis/config"
-	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	"github.com/tektoncd/pipeline/pkg/apis/validate"
-	"github.com/tektoncd/pipeline/pkg/apis/version"
 	"github.com/tektoncd/pipeline/pkg/substitution"
+
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/webhook/resourcesemantics"
 )
@@ -43,21 +39,25 @@ const (
 	// - Must begin with a letter or an underscore (_)
 	stringAndArrayVariableNameFormat = "^[_a-zA-Z][_a-zA-Z0-9.-]*$"
 
-	// objectVariableNameFormat is the regext used to validate object name and key names format
+	// objectVariableNameFormat is the regex used to validate object name and key names format
 	// The difference with the array or string name format is that object variable names shouldn't contain dots.
 	objectVariableNameFormat = "^[_a-zA-Z][_a-zA-Z0-9-]*$"
 )
 
-var _ apis.Validatable = (*Task)(nil)
-var _ resourcesemantics.VerbLimited = (*Task)(nil)
+var (
+	_ apis.Validatable              = (*Task)(nil)
+	_ resourcesemantics.VerbLimited = (*Task)(nil)
+)
 
 // SupportedVerbs returns the operations that validation should be called for
 func (t *Task) SupportedVerbs() []admissionregistrationv1.OperationType {
 	return []admissionregistrationv1.OperationType{admissionregistrationv1.Create, admissionregistrationv1.Update}
 }
 
-var stringAndArrayVariableNameFormatRegex = regexp.MustCompile(stringAndArrayVariableNameFormat)
-var objectVariableNameFormatRegex = regexp.MustCompile(objectVariableNameFormat)
+var (
+	stringAndArrayVariableNameFormatRegex = regexp.MustCompile(stringAndArrayVariableNameFormat)
+	objectVariableNameFormatRegex         = regexp.MustCompile(objectVariableNameFormat)
+)
 
 // Validate implements apis.Validatable
 func (t *Task) Validate(ctx context.Context) *apis.FieldError {
@@ -66,11 +66,6 @@ func (t *Task) Validate(ctx context.Context) *apis.FieldError {
 	// When a Task is created directly, instead of declared inline in a TaskRun or PipelineRun,
 	// we do not support propagated parameters. Validate that all params it uses are declared.
 	errs = errs.Also(ValidateUsageOfDeclaredParameters(ctx, t.Spec.Steps, t.Spec.Params).ViaField("spec"))
-	// Validate beta fields when a Task is defined, but not as part of validating a Task spec.
-	// This prevents validation from failing when a Task is converted to a different API version.
-	// See https://github.com/tektoncd/pipeline/issues/6616 for more information.
-	// TODO(#6592): Decouple API versioning from feature versioning
-	errs = errs.Also(t.Spec.ValidateBetaFields(ctx))
 	return errs
 }
 
@@ -92,8 +87,8 @@ func (ts *TaskSpec) Validate(ctx context.Context) (errs *apis.FieldError) {
 		})
 	}
 
-	errs = errs.Also(validateSteps(ctx, mergedSteps).ViaField("steps"))
-	errs = errs.Also(validateSidecarNames(ts.Sidecars))
+	errs = errs.Also(StepList(mergedSteps).Validate(ctx).ViaField("steps"))
+	errs = errs.Also(SidecarList(ts.Sidecars).Validate(ctx).ViaField("sidecars"))
 	errs = errs.Also(ValidateParameterTypes(ctx, ts.Params).ViaField("params"))
 	errs = errs.Also(ValidateParameterVariables(ctx, ts.Steps, ts.Params))
 	errs = errs.Also(validateTaskContextVariables(ctx, ts.Steps))
@@ -102,64 +97,23 @@ func (ts *TaskSpec) Validate(ctx context.Context) (errs *apis.FieldError) {
 	return errs
 }
 
-// ValidateBetaFields returns an error if the Task spec uses beta features but does not
-// have "enable-api-fields" set to "alpha" or "beta".
-func (ts *TaskSpec) ValidateBetaFields(ctx context.Context) *apis.FieldError {
-	var errs *apis.FieldError
-	// Object parameters
-	for i, p := range ts.Params {
-		if p.Type == ParamTypeObject {
-			errs = errs.Also(version.ValidateEnabledAPIFields(ctx, "object type parameter", config.BetaAPIFields).ViaFieldIndex("params", i))
-		}
-	}
-	// Indexing into array parameters
-	arrayIndexParamRefs := ts.GetIndexingReferencesToArrayParams()
-	if len(arrayIndexParamRefs) != 0 && !config.CheckAlphaOrBetaAPIFields(ctx) {
-		errs = errs.Also(apis.ErrGeneric(fmt.Sprintf("cannot index into array parameters when 'enable-api-fields' is 'stable', but found indexing references: %s", arrayIndexParamRefs)))
-	}
-	// Array and object results
-	for i, result := range ts.Results {
-		switch result.Type {
-		case ResultsTypeObject:
-			errs = errs.Also(version.ValidateEnabledAPIFields(ctx, "object results", config.BetaAPIFields).ViaFieldIndex("results", i))
-		case ResultsTypeArray:
-			errs = errs.Also(version.ValidateEnabledAPIFields(ctx, "array results", config.BetaAPIFields).ViaFieldIndex("results", i))
-		case ResultsTypeString:
-		default:
-		}
-	}
-	return errs
-}
-
 // ValidateUsageOfDeclaredParameters validates that all parameters referenced in the Task are declared by the Task.
 func ValidateUsageOfDeclaredParameters(ctx context.Context, steps []Step, params ParamSpecs) *apis.FieldError {
 	var errs *apis.FieldError
-	_, _, objectParams := params.sortByType()
-	allParameterNames := sets.NewString(params.getNames()...)
+	_, _, objectParams := params.SortByType()
+	allParameterNames := sets.NewString(params.GetNames()...)
 	errs = errs.Also(validateVariables(ctx, steps, "params", allParameterNames))
 	errs = errs.Also(validateObjectUsage(ctx, steps, objectParams))
-	errs = errs.Also(validateObjectParamsHaveProperties(ctx, params))
+	errs = errs.Also(ValidateObjectParamsHaveProperties(ctx, params))
 	return errs
 }
 
-// validateObjectParamsHaveProperties returns an error if any declared object params are missing properties
-func validateObjectParamsHaveProperties(ctx context.Context, params ParamSpecs) *apis.FieldError {
+// ValidateObjectParamsHaveProperties returns an error if any declared object params are missing properties
+func ValidateObjectParamsHaveProperties(ctx context.Context, params ParamSpecs) *apis.FieldError {
 	var errs *apis.FieldError
 	for _, p := range params {
 		if p.Type == ParamTypeObject && p.Properties == nil {
-			errs = errs.Also(apis.ErrMissingField(fmt.Sprintf("%s.properties", p.Name)))
-		}
-	}
-	return errs
-}
-
-func validateSidecarNames(sidecars []Sidecar) (errs *apis.FieldError) {
-	for _, sc := range sidecars {
-		if sc.Name == pipeline.ReservedResultsSidecarName {
-			errs = errs.Also(&apis.FieldError{
-				Message: fmt.Sprintf("Invalid: cannot use reserved sidecar name %v ", sc.Name),
-				Paths:   []string{"sidecars"},
-			})
+			errs = errs.Also(apis.ErrMissingField(p.Name + ".properties"))
 		}
 	}
 	return errs
@@ -208,8 +162,8 @@ func validateDeclaredWorkspaces(workspaces []WorkspaceDeclaration, steps []Step,
 // validateWorkspaceUsages checks that all WorkspaceUsage objects in Steps
 // refer to workspaces that are defined in the Task.
 //
-// This is an alpha feature and will fail validation if it's used by a step
-// or sidecar when the enable-api-fields feature gate is anything but "alpha".
+// This is a beta feature and will fail validation if it's used by a step
+// or sidecar when the enable-api-fields feature gate is anything but "beta".
 func validateWorkspaceUsages(ctx context.Context, ts *TaskSpec) (errs *apis.FieldError) {
 	workspaces := ts.Workspaces
 	steps := ts.Steps
@@ -222,7 +176,7 @@ func validateWorkspaceUsages(ctx context.Context, ts *TaskSpec) (errs *apis.Fiel
 
 	for stepIdx, step := range steps {
 		if len(step.Workspaces) != 0 {
-			errs = errs.Also(version.ValidateEnabledAPIFields(ctx, "step workspaces", config.AlphaAPIFields).ViaIndex(stepIdx).ViaField("steps"))
+			errs = errs.Also(config.ValidateEnabledAPIFields(ctx, "step workspaces", config.BetaAPIFields).ViaIndex(stepIdx).ViaField("steps"))
 		}
 		for workspaceIdx, w := range step.Workspaces {
 			if !wsNames.Has(w.Name) {
@@ -233,7 +187,7 @@ func validateWorkspaceUsages(ctx context.Context, ts *TaskSpec) (errs *apis.Fiel
 
 	for sidecarIdx, sidecar := range sidecars {
 		if len(sidecar.Workspaces) != 0 {
-			errs = errs.Also(version.ValidateEnabledAPIFields(ctx, "sidecar workspaces", config.AlphaAPIFields).ViaIndex(sidecarIdx).ViaField("sidecars"))
+			errs = errs.Also(config.ValidateEnabledAPIFields(ctx, "sidecar workspaces", config.BetaAPIFields).ViaIndex(sidecarIdx).ViaField("sidecars"))
 		}
 		for workspaceIdx, w := range sidecar.Workspaces {
 			if !wsNames.Has(w.Name) {
@@ -245,7 +199,7 @@ func validateWorkspaceUsages(ctx context.Context, ts *TaskSpec) (errs *apis.Fiel
 	return errs
 }
 
-// ValidateVolumes validates a slice of volumes to make sure there are no dupilcate names
+// ValidateVolumes validates a slice of volumes to make sure there are no duplicate names
 func ValidateVolumes(volumes []corev1.Volume) (errs *apis.FieldError) {
 	// Task must not have duplicate volume names.
 	vols := sets.NewString()
@@ -259,85 +213,53 @@ func ValidateVolumes(volumes []corev1.Volume) (errs *apis.FieldError) {
 	return errs
 }
 
-func validateSteps(ctx context.Context, steps []Step) (errs *apis.FieldError) {
+// Validate implements apis.Validatable
+func (l StepList) Validate(ctx context.Context) (errs *apis.FieldError) {
 	// Task must not have duplicate step names.
 	names := sets.NewString()
-	for idx, s := range steps {
-		errs = errs.Also(validateStep(ctx, s, names).ViaIndex(idx))
+	for idx, s := range l {
+		// names cannot be duplicated - checking that Step names are unique
+		if s.Name != "" {
+			if names.Has(s.Name) {
+				errs = errs.Also(apis.ErrMultipleOneOf("name").ViaIndex(idx))
+			}
+			names.Insert(s.Name)
+		}
+
+		errs = errs.Also(s.Validate(ctx).ViaIndex(idx))
+		if s.Results != nil {
+			errs = errs.Also(ValidateStepResultsVariables(ctx, s.Results, s.Script).ViaIndex(idx))
+			errs = errs.Also(ValidateStepResults(ctx, s.Results).ViaIndex(idx).ViaField("results"))
+		}
+		if len(s.When) > 0 {
+			errs = errs.Also(s.When.validate(ctx).ViaIndex(idx))
+		}
 	}
 	return errs
 }
 
-func validateStep(ctx context.Context, s Step, names sets.String) (errs *apis.FieldError) {
-	if s.Image == "" {
-		errs = errs.Also(apis.ErrMissingField("Image"))
+// ValidateStepResults validates that all of the declared StepResults are valid.
+func ValidateStepResults(ctx context.Context, results []StepResult) (errs *apis.FieldError) {
+	for index, result := range results {
+		errs = errs.Also(result.Validate(ctx).ViaIndex(index))
 	}
+	return errs
+}
 
-	if s.Script != "" {
-		if len(s.Command) > 0 {
-			errs = errs.Also(&apis.FieldError{
-				Message: "script cannot be used with command",
-				Paths:   []string{"script"},
-			})
-		}
+// ValidateStepResultsVariables validates if the StepResults referenced in step script are defined in step's results.
+func ValidateStepResultsVariables(ctx context.Context, results []StepResult, script string) (errs *apis.FieldError) {
+	resultsNames := sets.NewString()
+	for _, r := range results {
+		resultsNames.Insert(r.Name)
 	}
+	errs = errs.Also(substitution.ValidateNoReferencesToUnknownVariables(script, "step.results", resultsNames).ViaField("script"))
+	errs = errs.Also(substitution.ValidateNoReferencesToUnknownVariables(script, "results", resultsNames).ViaField("script"))
+	return errs
+}
 
-	if s.Name != "" {
-		if names.Has(s.Name) {
-			errs = errs.Also(apis.ErrInvalidValue(s.Name, "name"))
-		}
-		if e := validation.IsDNS1123Label(s.Name); len(e) > 0 {
-			errs = errs.Also(&apis.FieldError{
-				Message: fmt.Sprintf("invalid value %q", s.Name),
-				Paths:   []string{"name"},
-				Details: "Task step name must be a valid DNS Label, For more info refer to https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names",
-			})
-		}
-		names.Insert(s.Name)
-	}
-
-	if s.Timeout != nil {
-		if s.Timeout.Duration < time.Duration(0) {
-			return apis.ErrInvalidValue(s.Timeout.Duration, "negative timeout")
-		}
-	}
-
-	for j, vm := range s.VolumeMounts {
-		if strings.HasPrefix(vm.MountPath, "/tekton/") &&
-			!strings.HasPrefix(vm.MountPath, "/tekton/home") {
-			errs = errs.Also(apis.ErrGeneric(fmt.Sprintf("volumeMount cannot be mounted under /tekton/ (volumeMount %q mounted at %q)", vm.Name, vm.MountPath), "mountPath").ViaFieldIndex("volumeMounts", j))
-		}
-		if strings.HasPrefix(vm.Name, "tekton-internal-") {
-			errs = errs.Also(apis.ErrGeneric(fmt.Sprintf(`volumeMount name %q cannot start with "tekton-internal-"`, vm.Name), "name").ViaFieldIndex("volumeMounts", j))
-		}
-	}
-
-	if s.OnError != "" {
-		if !isParamRefs(string(s.OnError)) && s.OnError != Continue && s.OnError != StopAndFail {
-			errs = errs.Also(&apis.FieldError{
-				Message: fmt.Sprintf("invalid value: \"%v\"", s.OnError),
-				Paths:   []string{"onError"},
-				Details: "Task step onError must be either \"continue\" or \"stopAndFail\"",
-			})
-		}
-	}
-
-	if s.Script != "" {
-		cleaned := strings.TrimSpace(s.Script)
-		if strings.HasPrefix(cleaned, "#!win") {
-			errs = errs.Also(version.ValidateEnabledAPIFields(ctx, "windows script support", config.AlphaAPIFields).ViaField("script"))
-		}
-	}
-
-	// StdoutConfig is an alpha feature and will fail validation if it's used in a task spec
-	// when the enable-api-fields feature gate is not "alpha".
-	if s.StdoutConfig != nil {
-		errs = errs.Also(version.ValidateEnabledAPIFields(ctx, "step stdout stream support", config.AlphaAPIFields).ViaField("stdoutconfig"))
-	}
-	// StderrConfig is an alpha feature and will fail validation if it's used in a task spec
-	// when the enable-api-fields feature gate is not "alpha".
-	if s.StderrConfig != nil {
-		errs = errs.Also(version.ValidateEnabledAPIFields(ctx, "step stderr stream support", config.AlphaAPIFields).ViaField("stderrconfig"))
+func (l SidecarList) Validate(ctx context.Context) (errs *apis.FieldError) {
+	for _, sc := range l {
+		errs = errs.Also(sc.Validate(ctx))
 	}
 	return errs
 }
@@ -360,7 +282,7 @@ func (p ParamSpec) ValidateType(ctx context.Context) *apis.FieldError {
 		}
 	}
 	if !validType {
-		return apis.ErrInvalidValue(p.Type, fmt.Sprintf("%s.type", p.Name))
+		return apis.ErrInvalidValue(p.Type, p.Name+".type")
 	}
 
 	// If a default value is provided, ensure its type matches param's declared type.
@@ -369,8 +291,8 @@ func (p ParamSpec) ValidateType(ctx context.Context) *apis.FieldError {
 			Message: fmt.Sprintf(
 				"\"%v\" type does not match default value's type: \"%v\"", p.Type, p.Default.Type),
 			Paths: []string{
-				fmt.Sprintf("%s.type", p.Name),
-				fmt.Sprintf("%s.default.type", p.Name),
+				p.Name + ".type",
+				p.Name + ".default.type",
 			},
 		}
 	}
@@ -393,7 +315,7 @@ func (p ParamSpec) ValidateObjectType(ctx context.Context) *apis.FieldError {
 	if len(invalidKeys) != 0 {
 		return &apis.FieldError{
 			Message: fmt.Sprintf("The value type specified for these keys %v is invalid", invalidKeys),
-			Paths:   []string{fmt.Sprintf("%s.properties", p.Name)},
+			Paths:   []string{p.Name + ".properties"},
 		}
 	}
 
@@ -403,11 +325,12 @@ func (p ParamSpec) ValidateObjectType(ctx context.Context) *apis.FieldError {
 // ValidateParameterVariables validates all variables within a slice of ParamSpecs against a slice of Steps
 func ValidateParameterVariables(ctx context.Context, steps []Step, params ParamSpecs) *apis.FieldError {
 	var errs *apis.FieldError
-	errs = errs.Also(params.validateNoDuplicateNames())
-	stringParams, arrayParams, objectParams := params.sortByType()
-	stringParameterNames := sets.NewString(stringParams.getNames()...)
-	arrayParameterNames := sets.NewString(arrayParams.getNames()...)
-	errs = errs.Also(validateNameFormat(stringParameterNames.Insert(arrayParameterNames.List()...), objectParams))
+	errs = errs.Also(params.ValidateNoDuplicateNames())
+	errs = errs.Also(params.validateParamEnums(ctx).ViaField("params"))
+	stringParams, arrayParams, objectParams := params.SortByType()
+	stringParameterNames := sets.NewString(stringParams.GetNames()...)
+	arrayParameterNames := sets.NewString(arrayParams.GetNames()...)
+	errs = errs.Also(ValidateNameFormat(stringParameterNames.Insert(arrayParameterNames.List()...), objectParams))
 	return errs.Also(validateArrayUsage(steps, "params", arrayParameterNames))
 }
 
@@ -452,7 +375,7 @@ func validateObjectUsage(ctx context.Context, steps []Step, params []ParamSpec) 
 		}
 
 		// check if the object's key names are referenced correctly i.e. param.objectParam.key1
-		errs = errs.Also(validateVariables(ctx, steps, fmt.Sprintf("params\\.%s", p.Name), objectKeys))
+		errs = errs.Also(validateVariables(ctx, steps, "params\\."+p.Name, objectKeys))
 	}
 
 	return errs.Also(validateObjectUsageAsWhole(steps, "params", objectParameterNames))
@@ -528,8 +451,8 @@ func validateVariables(ctx context.Context, steps []Step, prefix string, vars se
 	return errs
 }
 
-// validateNameFormat validates that the name format of all param types follows the rules
-func validateNameFormat(stringAndArrayParams sets.String, objectParams []ParamSpec) (errs *apis.FieldError) {
+// ValidateNameFormat validates that the name format of all param types follows the rules
+func ValidateNameFormat(stringAndArrayParams sets.String, objectParams []ParamSpec) (errs *apis.FieldError) {
 	// checking string or array name format
 	// ----
 	invalidStringAndArrayNames := []string{}
@@ -599,12 +522,6 @@ func validateStepVariables(ctx context.Context, step Step, prefix string, vars s
 	}
 	errs = errs.Also(substitution.ValidateNoReferencesToUnknownVariables(string(step.OnError), prefix, vars).ViaField("onError"))
 	return errs
-}
-
-// isParamRefs attempts to check if a specified string looks like it contains any parameter reference
-// This is useful to make sure the specified value looks like a Parameter Reference before performing any strict validation
-func isParamRefs(s string) bool {
-	return strings.HasPrefix(s, "$("+ParamsPrefix)
 }
 
 // GetIndexingReferencesToArrayParams returns all strings referencing indices of TaskRun array parameters
