@@ -53,7 +53,6 @@ type CustomRunSpec struct {
 	CustomSpec *EmbeddedCustomRunSpec `json:"customSpec,omitempty"`
 
 	// +optional
-	// +listType=atomic
 	Params Params `json:"params,omitempty"`
 
 	// Used for cancelling a customrun (and maybe more later on)
@@ -223,9 +222,14 @@ func (r *CustomRun) HasStarted() bool {
 	return r.Status.StartTime != nil && !r.Status.StartTime.IsZero()
 }
 
-// IsSuccessful returns true if the CustomRun's status indicates that it is done.
+// IsSuccessful returns true if the CustomRun's status indicates that it has succeeded.
 func (r *CustomRun) IsSuccessful() bool {
 	return r != nil && r.Status.GetCondition(apis.ConditionSucceeded).IsTrue()
+}
+
+// IsFailure returns true if the CustomRun's status indicates that it has failed.
+func (r *CustomRun) IsFailure() bool {
+	return r != nil && r.Status.GetCondition(apis.ConditionSucceeded).IsFalse()
 }
 
 // GetCustomRunKey return the customrun's key for timeout handler map

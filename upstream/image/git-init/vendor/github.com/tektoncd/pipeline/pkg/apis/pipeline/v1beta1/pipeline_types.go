@@ -18,6 +18,7 @@ package v1beta1
 
 import (
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
+	"github.com/tektoncd/pipeline/pkg/apis/pipeline/internal/checksum"
 	"github.com/tektoncd/pipeline/pkg/reconciler/pipeline/dag"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,6 +27,9 @@ import (
 	"knative.dev/pkg/kmeta"
 )
 
+// PipelineTaskOnErrorType defines a list of supported failure handling behaviors of a PipelineTask on error
+type PipelineTaskOnErrorType string
+
 const (
 	// PipelineTasksAggregateStatus is a param representing aggregate status of all dag pipelineTasks
 	PipelineTasksAggregateStatus = "tasks.status"
@@ -33,16 +37,22 @@ const (
 	PipelineTasks = "tasks"
 	// PipelineFinallyTasks is a value representing a task is a member of "finally" section of the pipeline
 	PipelineFinallyTasks = "finally"
+	// PipelineTaskStopAndFail indicates to stop and fail the PipelineRun if the PipelineTask fails
+	PipelineTaskStopAndFail PipelineTaskOnErrorType = "stopAndFail"
+	// PipelineTaskContinue indicates to continue executing the rest of the DAG when the PipelineTask fails
+	PipelineTaskContinue PipelineTaskOnErrorType = "continue"
 )
 
 // +genclient
 // +genclient:noStatus
 // +genreconciler:krshapedlogic=false
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +k8s:openapi-gen=true
 
 // Pipeline describes a list of Tasks to execute. It expresses how outputs
 // of tasks feed into inputs of subsequent tasks.
-// +k8s:openapi-gen=true
+//
+// Deprecated: Please use v1.Pipeline instead.
 type Pipeline struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
@@ -75,6 +85,27 @@ func (*Pipeline) GetGroupVersionKind() schema.GroupVersionKind {
 	return SchemeGroupVersion.WithKind(pipeline.PipelineControllerName)
 }
 
+// Checksum computes the sha256 checksum of the task object.
+// Prior to computing the checksum, it performs some preprocessing on the
+// metadata of the object where it removes system provided annotations.
+// Only the name, namespace, generateName, user-provided labels and annotations
+// and the pipelineSpec are included for the checksum computation.
+func (p *Pipeline) Checksum() ([]byte, error) {
+	objectMeta := checksum.PrepareObjectMeta(p)
+	preprocessedPipeline := Pipeline{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "tekton.dev/v1beta1",
+			Kind:       "Pipeline"},
+		ObjectMeta: objectMeta,
+		Spec:       p.Spec,
+	}
+	sha256Checksum, err := checksum.ComputeSha256Checksum(preprocessedPipeline)
+	if err != nil {
+		return nil, err
+	}
+	return sha256Checksum, nil
+}
+
 // PipelineSpec defines the desired state of Pipeline.
 type PipelineSpec struct {
 	// DisplayName is a user-facing name of the pipeline that may be
@@ -93,7 +124,6 @@ type PipelineSpec struct {
 	Tasks []PipelineTask `json:"tasks,omitempty"`
 	// Params declares a list of input parameters that must be supplied when
 	// this Pipeline is run.
-	// +listType=atomic
 	Params ParamSpecs `json:"params,omitempty"`
 	// Workspaces declares a set of named workspaces that are expected to be
 	// provided by a PipelineRun.
@@ -126,6 +156,8 @@ type PipelineResult struct {
 	Description string `json:"description"`
 
 	// Value the expression used to retrieve the value
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Schemaless
 	Value ResultValue `json:"value"`
 }
 
@@ -178,7 +210,12 @@ type PipelineTask struct {
 	TaskRef *TaskRef `json:"taskRef,omitempty"`
 
 	// TaskSpec is a specification of a task
+	// Specifying TaskSpec can be disabled by setting
+	// `disable-inline-spec` feature flag.
+	// See Task.spec (API version: tekton.dev/v1beta1)
 	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Schemaless
 	TaskSpec *EmbeddedTask `json:"taskSpec,omitempty"`
 
 	// WhenExpressions is a list of when expressions that need to be true for the task to run
@@ -201,7 +238,6 @@ type PipelineTask struct {
 
 	// Parameters declares parameters passed to this task.
 	// +optional
-	// +listType=atomic
 	Params Params `json:"params,omitempty"`
 
 	// Matrix declares parameters used to fan out this task.
@@ -214,10 +250,30 @@ type PipelineTask struct {
 	// +listType=atomic
 	Workspaces []WorkspacePipelineTaskBinding `json:"workspaces,omitempty"`
 
-	// Time after which the TaskRun times out. Defaults to 1 hour.
+	// Duration after which the TaskRun times out. Defaults to 1 hour.
 	// Refer Go's ParseDuration documentation for expected format: https://golang.org/pkg/time/#ParseDuration
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// PipelineRef is a reference to a pipeline definition
+	// Note: PipelineRef is in preview mode and not yet supported
+	// +optional
+	PipelineRef *PipelineRef `json:"pipelineRef,omitempty"`
+
+	// PipelineSpec is a specification of a pipeline
+	// Note: PipelineSpec is in preview mode and not yet supported
+	// Specifying PipelineSpec can be disabled by setting
+	// `disable-inline-spec` feature flag.
+	// See Pipeline.spec (API version: tekton.dev/v1beta1)
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Schemaless
+	PipelineSpec *PipelineSpec `json:"pipelineSpec,omitempty"`
+
+	// OnError defines the exiting behavior of a PipelineRun on error
+	// can be set to [ continue | stopAndFail ]
+	// +optional
+	OnError PipelineTaskOnErrorType `json:"onError,omitempty"`
 }
 
 // IsCustomTask checks whether an embedded TaskSpec is a Custom Task

@@ -16,11 +16,10 @@ package v1beta1
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
-	"strings"
 
 	"github.com/tektoncd/pipeline/pkg/apis/config"
-	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/strings/slices"
 	"knative.dev/pkg/apis"
@@ -32,16 +31,15 @@ type Matrix struct {
 	// Params takes only `Parameters` of type `"array"`
 	// Each array element is supplied to the `PipelineTask` by substituting `params` of type `"string"` in the underlying `Task`.
 	// The names of the `params` in the `Matrix` must match the names of the `params` in the underlying `Task` that they will be substituting.
-	// +listType=atomic
 	Params Params `json:"params,omitempty"`
 
 	// Include is a list of IncludeParams which allows passing in specific combinations of Parameters into the Matrix.
 	// +optional
-	// +listType=atomic
 	Include IncludeParamsList `json:"include,omitempty"`
 }
 
 // IncludeParamsList is a list of IncludeParams which allows passing in specific combinations of Parameters into the Matrix.
+// +listType=atomic
 type IncludeParamsList []IncludeParams
 
 // IncludeParams allows passing in a specific combinations of Parameters into the Matrix.
@@ -51,7 +49,6 @@ type IncludeParams struct {
 
 	// Params takes only `Parameters` of type `"string"`
 	// The names of the `params` must match the names of the `params` in the underlying `Task`
-	// +listType=atomic
 	Params Params `json:"params,omitempty"`
 }
 
@@ -345,24 +342,6 @@ func (m *Matrix) validateParameterInOneOfMatrixOrParams(params Params) (errs *ap
 	for _, param := range params {
 		if matrixParamNames.Has(param.Name) {
 			errs = errs.Also(apis.ErrMultipleOneOf("matrix["+param.Name+"]", "params["+param.Name+"]"))
-		}
-	}
-	return errs
-}
-
-// validateNoWholeArrayResults() is used to ensure a matrix parameter does not contain result references
-// to entire arrays. This is temporary until whole array replacements for matrix paraemeters are supported.
-// See issue #6056 for more details
-func (m *Matrix) validateNoWholeArrayResults() (errs *apis.FieldError) {
-	if m.HasParams() {
-		for i, param := range m.Params {
-			val := param.Value.StringVal
-			expressions, ok := GetVarSubstitutionExpressionsForParam(param)
-			if ok {
-				if LooksLikeContainsResultRefs(expressions) && strings.Contains(val, "[*]") {
-					errs = errs.Also(apis.ErrGeneric("matrix parameters cannot contain whole array result references", "").ViaFieldIndex("matrix.params", i))
-				}
-			}
 		}
 	}
 	return errs
