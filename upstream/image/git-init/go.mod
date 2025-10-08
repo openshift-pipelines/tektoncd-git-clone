@@ -1,9 +1,11 @@
 module github.com/tektoncd-catalog/git-clone/git-init
 
-go 1.20
+go 1.21
+
+toolchain go1.24.6
 
 require (
-	github.com/google/go-cmp v0.5.9
+	github.com/google/go-cmp v0.7.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/tektoncd/pipeline v0.49.0
 	go.uber.org/zap v1.24.0
@@ -20,7 +22,7 @@ require (
 	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/go-kit/log v0.2.0 // indirect
-	github.com/go-logfmt/logfmt v0.5.1 // indirect
+	github.com/go-logfmt/logfmt v0.6.1 // indirect
 	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/jsonreference v0.20.1 // indirect
