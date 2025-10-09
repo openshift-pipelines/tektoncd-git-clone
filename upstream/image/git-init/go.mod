@@ -1,9 +1,11 @@
 module github.com/tektoncd-catalog/git-clone/git-init
 
-go 1.20
+go 1.21
+
+toolchain go1.24.6
 
 require (
-	github.com/google/go-cmp v0.5.9
+	github.com/google/go-cmp v0.7.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/tektoncd/pipeline v0.49.0
 	go.uber.org/zap v1.24.0
