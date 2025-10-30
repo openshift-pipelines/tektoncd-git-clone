@@ -16,7 +16,11 @@ limitations under the License.
 package main
 
 import (
+	"encoding/csv"
 	"flag"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/tektoncd-catalog/git-clone/git-init/git"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
@@ -26,6 +30,7 @@ import (
 
 var (
 	fetchSpec              git.FetchSpec
+	retryConfig            git.RetryConfig
 	terminationMessagePath string
 )
 
@@ -36,9 +41,28 @@ func init() {
 	flag.StringVar(&fetchSpec.Path, "path", "", "Path of directory under which Git repository will be copied")
 	flag.BoolVar(&fetchSpec.SSLVerify, "sslVerify", true, "Enable/Disable SSL verification in the git config")
 	flag.BoolVar(&fetchSpec.Submodules, "submodules", true, "Initialize and fetch Git submodules")
+	flag.Func(
+		"submodulePaths",
+		"Comma-separated list of submodule paths to be used in git submodule update command. Flag submodules must be set to true to make this parameter applicable.",
+		func(csvVal string) error {
+			if csvVal != "" {
+				reader := csv.NewReader(strings.NewReader(csvVal))
+				paths, err := reader.Read()
+				if err != nil {
+					return fmt.Errorf("error parsing submodulePaths: %s", err)
+				}
+				fetchSpec.SubmodulePaths = paths
+			}
+			return nil
+		},
+	)
 	flag.UintVar(&fetchSpec.Depth, "depth", 1, "Perform a shallow clone to this depth")
 	flag.StringVar(&terminationMessagePath, "terminationMessagePath", "/tekton/termination", "Location of file containing termination message")
 	flag.StringVar(&fetchSpec.SparseCheckoutDirectories, "sparseCheckoutDirectories", "", "String of directory patterns separated by a comma")
+	flag.DurationVar(&retryConfig.Initial, "retryInitial", 1*time.Second, "Initial retry duration for fetch operations")
+	flag.DurationVar(&retryConfig.Max, "retryMax", 10*time.Second, "Maximum retry duration for fetch operations")
+	flag.Float64Var(&retryConfig.Factor, "retryFactor", 2.0, "Retry factor for fetch operations")
+	flag.IntVar(&retryConfig.MaxAttempts, "retryMaxAttempts", 1, "Maximum number of retry attempts for fetch operations")
 }
 
 func main() {
@@ -49,7 +73,7 @@ func main() {
 		_ = logger.Sync()
 	}()
 
-	if err := git.Fetch(logger, fetchSpec); err != nil {
+	if err := git.Fetch(logger, fetchSpec, retryConfig); err != nil {
 		logger.Fatalf("Error fetching git repository: %s", err)
 	}
 
