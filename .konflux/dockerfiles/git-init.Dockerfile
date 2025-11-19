@@ -13,7 +13,7 @@ ENV GOEXPERIMENT=strictfipsruntime
 RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags disable_gcp,strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
-ARG VERSION=git-init-1.20
+ARG VERSION=git-init-1.21
 
 ENV BINARY=git-init \
     KO_APP=/ko-app \
