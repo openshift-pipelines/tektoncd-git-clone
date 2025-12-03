@@ -17,10 +17,12 @@ package git
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
@@ -327,6 +329,38 @@ func TestFetch(t *testing.T) {
 				NOProxy:                   "",
 				SparseCheckoutDirectories: "",
 			},
+		}, {
+			name:       "test-clone-with-submodules-empty-paths",
+			logMessage: "updated submodules",
+			wantErr:    false,
+			spec: FetchSpec{
+				URL:            "",
+				Revision:       "",
+				Refspec:        "",
+				Path:           "",
+				Depth:          0,
+				Submodules:     true,
+				SubmodulePaths: []string{},
+				HTTPProxy:      "",
+				HTTPSProxy:     "",
+				NOProxy:        "",
+			},
+		}, {
+			name:       "test-clone-with-submodules-defined-paths",
+			logMessage: "updated submodules",
+			wantErr:    false,
+			spec: FetchSpec{
+				URL:            "",
+				Revision:       "",
+				Refspec:        "",
+				Path:           "",
+				Depth:          0,
+				Submodules:     true,
+				SubmodulePaths: []string{"test_submod"},
+				HTTPProxy:      "",
+				HTTPSProxy:     "",
+				NOProxy:        "",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -340,19 +374,30 @@ func TestFetch(t *testing.T) {
 			logger := zap.New(observer).Sugar()
 
 			submodPath := ""
+			submodName := "default"
 			if tt.spec.Submodules {
-				submodPath := t.TempDir()
-				createTempGit(t, logger, submodPath, "")
+				submodPath = t.TempDir()
+				createTempGit(t, logger, submodPath, "", "")
+			}
+
+			if len(tt.spec.SubmodulePaths) > 0 {
+				// test submodule path, replace template value
+				submodName = tt.spec.SubmodulePaths[0]
 			}
 
 			gitDir := t.TempDir()
-			createTempGit(t, logger, gitDir, submodPath)
+			createTempGit(t, logger, gitDir, submodPath, submodName)
 			tt.spec.URL = gitDir
 
 			targetPath := t.TempDir()
 			tt.spec.Path = targetPath
 
-			if err := Fetch(logger, tt.spec); (err != nil) != tt.wantErr {
+			if err := Fetch(logger, tt.spec, RetryConfig{
+				Initial:     1 * time.Second,
+				Max:         10 * time.Second,
+				Factor:      2.0,
+				MaxAttempts: 3,
+			}); (err != nil) != tt.wantErr {
 				t.Errorf("Fetch() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -376,9 +421,9 @@ func TestFetch(t *testing.T) {
 					t.Errorf("directory patterns and sparse-checkout patterns do not match")
 				}
 			}
-			logLine := 0
+			logLine := 1
 			if tt.spec.Submodules {
-				logLine = 1
+				logLine = 3
 			}
 			checkLogMessage(t, tt.logMessage, log, logLine)
 		})
@@ -386,7 +431,7 @@ func TestFetch(t *testing.T) {
 }
 
 // Create a temporary Git dir locally for testing against instead of using a potentially flaky remote URL.
-func createTempGit(t *testing.T, logger *zap.SugaredLogger, gitDir string, submodPath string) {
+func createTempGit(t *testing.T, logger *zap.SugaredLogger, gitDir string, submodPath string, submodName string) {
 	t.Helper()
 	if _, err := run(logger, "", "init", gitDir); err != nil {
 		t.Fatal(err)
@@ -413,7 +458,25 @@ func createTempGit(t *testing.T, logger *zap.SugaredLogger, gitDir string, submo
 	}
 
 	if submodPath != "" {
-		if _, err := run(logger, "", "submodule", "add", submodPath); err != nil {
+		// file protocol is necessary to clone submodules since the fixture is only written to the filesystem
+		if _, err := run(logger, "", "config", "--global", "protocol.file.allow", "always"); err != nil {
+			t.Fatal(err)
+		}
+
+		if submodName != "" {
+			if _, err := run(logger, "", "submodule", "add", submodPath, submodName); err != nil {
+				t.Fatal(err.Error())
+			}
+		} else {
+			if _, err := run(logger, "", "submodule", "add", submodPath); err != nil {
+				t.Fatal(err.Error())
+			}
+		}
+
+		if _, err := run(logger, "", "add", "."); err != nil {
+			t.Fatal(err.Error())
+		}
+		if _, err := run(logger, "", "commit", "-m", "Add submodule"); err != nil {
 			t.Fatal(err.Error())
 		}
 	}
@@ -431,5 +494,126 @@ func checkLogMessage(t *testing.T, logMessage string, log *observer.ObservedLogs
 	gotmsg := allLogLines[logLine].Message
 	if !strings.Contains(gotmsg, logMessage) {
 		t.Errorf("log message: '%s'\n should contain: '%s'", logMessage, gotmsg)
+	}
+}
+
+type SucceedAfter struct {
+	try       int
+	callCount int
+}
+
+func (f *SucceedAfter) Run() (string, error) {
+	f.callCount++
+	if f.callCount > f.try {
+		return "success", nil
+	}
+	return "", fmt.Errorf("temporary error")
+}
+
+func TestRetryWithBackoff(t *testing.T) {
+	withTemporaryGitConfig(t)
+	tests := []struct {
+		name           string
+		operation      func() (string, error)
+		initial        time.Duration
+		max            time.Duration
+		factor         float64
+		maxAttempts    int
+		expectedResult string
+		expectedError  bool
+		expectedMin    time.Duration
+		expectedMax    time.Duration
+	}{
+		{
+			name:           "successful operation on first attempt",
+			operation:      (&SucceedAfter{try: 0}).Run,
+			initial:        100 * time.Millisecond,
+			max:            1 * time.Second,
+			factor:         2.0,
+			maxAttempts:    3,
+			expectedResult: "success",
+			expectedError:  false,
+			expectedMin:    0,
+			expectedMax:    50 * time.Millisecond,
+		},
+		{
+			name:           "successful operation on second attempt",
+			operation:      (&SucceedAfter{try: 1}).Run,
+			initial:        100 * time.Millisecond,
+			max:            1 * time.Second,
+			factor:         2.0,
+			maxAttempts:    3,
+			expectedResult: "success",
+			expectedError:  false,
+			expectedMin:    100 * time.Millisecond,
+			expectedMax:    200 * time.Millisecond,
+		},
+		{
+			name:           "operation fails after max attempts",
+			operation:      (&SucceedAfter{try: 10}).Run,
+			initial:        100 * time.Millisecond,
+			max:            1 * time.Second,
+			factor:         2.0,
+			maxAttempts:    2,
+			expectedResult: "",
+			expectedError:  true,
+			expectedMin:    100 * time.Millisecond,
+			expectedMax:    200 * time.Millisecond,
+		},
+		{
+			name:           "operation fails and max backoff is reached",
+			operation:      (&SucceedAfter{try: 10}).Run,
+			initial:        100 * time.Millisecond,
+			max:            1 * time.Millisecond,
+			factor:         2.0,
+			maxAttempts:    3,
+			expectedResult: "",
+			expectedError:  true,
+			expectedMin:    2 * time.Millisecond,
+			expectedMax:    4 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observer, log := observer.New(zap.InfoLevel)
+			logger := zap.New(observer).Sugar()
+
+			result, waitTime, err := retryWithBackoff(
+				tt.operation,
+				tt.initial,
+				tt.max,
+				tt.factor,
+				tt.maxAttempts,
+				logger,
+			)
+
+			if tt.expectedError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if result != tt.expectedResult {
+					t.Errorf("Expected result %q, got %q", tt.expectedResult, result)
+				}
+			}
+
+			// Verify that retry attempts were logged
+			logLines := log.All()
+			if len(logLines) == 0 {
+				t.Error("Expected retry logs but got none")
+			}
+
+			// Assert expected duration
+			if waitTime < tt.expectedMin {
+				t.Errorf("Expected duration >= %v, got %v", tt.expectedMin, waitTime)
+			}
+			if waitTime > tt.expectedMax {
+				t.Errorf("Expected duration <= %v, got %v", tt.expectedMax, waitTime)
+			}
+		})
 	}
 }
