@@ -17,7 +17,7 @@ metadata:
       ".tekton/tektoncd-git-clone-1-22-git-init-pull-request.yaml".pathChanged())
   labels:
     appstudio.openshift.io/application: openshift-pipelines-core-1-22
-    appstudio.openshift.io/component: tektoncd-git-clone-git-init-1-22
+    appstudio.openshift.io/component: tektoncd-git-clone-1-22-git-init
     pipelines.appstudio.openshift.io/type: build
   name: tektoncd-git-clone-1-22-git-init-on-pull-request
   namespace: tekton-ecosystem-tenant
@@ -46,7 +46,7 @@ spec:
   pipelineRef:
     name: docker-build-ta
   taskRunTemplate:
-    serviceAccountName: build-pipeline-tektoncd-git-clone-git-init-1-22
+    serviceAccountName: build-pipeline-tektoncd-git-clone-1-22-git-init
   workspaces:
   - name: git-auth
     secret:
