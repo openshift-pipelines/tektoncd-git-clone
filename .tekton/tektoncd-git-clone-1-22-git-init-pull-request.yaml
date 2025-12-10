@@ -25,6 +25,8 @@ spec:
   params:
   - name: git-url
     value: '{{source_url}}'
+  - name: upstream-git-url
+    value: 'https://github.com/tektoncd-catalog/git-clone'
   - name: revision
     value: '{{revision}}'
   - name: output-image
@@ -35,7 +37,6 @@ spec:
     value: .konflux/dockerfiles/git-init.Dockerfile
   - name: additional-tags
     value:
-      - "on-pr-1.22"
       - "on-pr-1.22.0"
   - name: build-platforms
     value:
