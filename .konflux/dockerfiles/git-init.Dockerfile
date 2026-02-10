@@ -13,7 +13,7 @@ ENV GODEBUG="http2server=0"
 RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
-ARG VERSION=git-init-1.15.3
+ARG VERSION=git-init-1.15.4
 
 ENV BINARY=git-init \
     KO_APP=/ko-app \
