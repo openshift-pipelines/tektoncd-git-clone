@@ -1,4 +1,4 @@
-ARG GO_BUILDER=registry.access.redhat.com/ubi9/go-toolset:9.7-1772454089@sha256:b3b98e0b21ddbb979d968ca319b8eebdca121e30d58994072cbf99ce86e5d24e
+ARG GO_BUILDER=registry.access.redhat.com/ubi9/go-toolset:1.25
 ARG RUNTIME=registry.redhat.io/ubi9/ubi-minimal@sha256:c7d44146f826037f6873d99da479299b889473492d3c1ab8af86f08af04ec8a0
 
 FROM $GO_BUILDER AS builder
@@ -13,7 +13,7 @@ ENV GOEXPERIMENT=strictfipsruntime
 RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
-ARG VERSION=1.22.0
+ARG VERSION=1.22
 
 ENV BINARY=git-init \
     KO_APP=/ko-app \
@@ -27,16 +27,16 @@ RUN chgrp -R 0 ${KO_APP} && \
     chmod -R g+rwX ${KO_APP}
 
 LABEL \
-      com.redhat.component="openshift-pipelines-git-init-rhel9-container" \
-      cpe="cpe:/a:redhat:openshift_pipelines:1.22::el9" \
-      description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
-      io.k8s.description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
-      io.k8s.display-name="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
-      io.openshift.tags="tekton,openshift,tektoncd-git-clone,git-init" \
-      maintainer="pipelines-extcomm@redhat.com" \
-      name="openshift-pipelines/pipelines-git-init-rhel9" \
-      summary="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
-      version="v1.22.0"
+    com.redhat.component="openshift-pipelines-git-init-rhel9-container" \
+    cpe="cpe:/a:redhat:openshift_pipelines:1.22::el9" \
+    description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
+    io.k8s.description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
+    io.k8s.display-name="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
+    io.openshift.tags="tekton,openshift,tektoncd-git-clone,git-init" \
+    maintainer="pipelines-extcomm@redhat.com" \
+    name="openshift-pipelines/pipelines-git-init-rhel9" \
+    summary="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
+    version="v1.22.0"
 
 RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot -d /home/git -m nonroot
 USER 65532
