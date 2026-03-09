@@ -1,5 +1,5 @@
 # Rebuild trigger: 1.15.4 release 2026-02-26 
-ARG GO_BUILDER=registry.access.redhat.com/ubi8/go-toolset:1.25.7-1772050971
+ARG GO_BUILDER=registry.access.redhat.com/ubi9/go-toolset:1.25
 ARG RUNTIME=registry.redhat.io/ubi8/ubi:latest@sha256:a2874895561a0f52e84c78c9c8b504922cd0dd03dc19d682a51c935d29330c55
 
 FROM $GO_BUILDER AS builder
@@ -13,7 +13,7 @@ ENV GODEBUG="http2server=0"
 RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
-ARG VERSION=git-init-1.15.4
+ARG VERSION=1.15
 
 ENV BINARY=git-init \
     KO_APP=/ko-app \
@@ -27,16 +27,16 @@ RUN chgrp -R 0 ${KO_APP} && \
     chmod -R g+rwX ${KO_APP}
 
 LABEL \
-      com.redhat.component="openshift-pipelines-git-init-rhel8-container" \
-      name="openshift-pipelines/pipelines-git-init-rhel8" \
-      version=$VERSION \
-      cpe="cpe:/a:redhat:openshift_pipelines:1.15::el8" \
-      summary="Red Hat OpenShift Pipelines Git-init" \
-      maintainer="pipelines-extcomm@redhat.com" \
-      description="Red Hat OpenShift Pipelines Git-init" \
-      io.k8s.display-name="Red Hat OpenShift Pipelines Git-init" \
-      io.k8s.description="git-init is a binary that makes it easy to clone a repository from a Tekton Task. It is usually used via the git-clone Tasks." \
-      io.openshift.tags="pipelines,tekton,openshift"
+    com.redhat.component="openshift-pipelines-git-init-rhel9-container" \
+    cpe="cpe:/a:redhat:openshift_pipelines:1.15::el9" \
+    description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
+    io.k8s.description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
+    io.k8s.display-name="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
+    io.openshift.tags="tekton,openshift,tektoncd-git-clone,git-init" \
+    maintainer="pipelines-extcomm@redhat.com" \
+    name="openshift-pipelines/pipelines-git-init-rhel9" \
+    summary="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
+    version="v1.15.5"
 
 RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot -d /home/git -m nonroot
 USER 65532
