@@ -30,7 +30,7 @@ jobs:
 
       - run: git fetch --prune --unshallow
 
-      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: "image/git-init/go.mod"
           cache-dependency-path: "image/git-init/go.sum"
@@ -40,13 +40,13 @@ jobs:
 
       - uses: imjasonh/setup-crane@6da1ae018866400525525ce74ff892880c099987 # v0.5
 
-      - uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+      - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
       - name: Set tag output
         id: tag
         run: echo "tag_name=${GITHUB_REF#refs/*/}" >> "$GITHUB_OUTPUT"
 
-      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+      - uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
         id: run-goreleaser
         with:
           version: latest
