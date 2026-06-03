@@ -27,16 +27,16 @@ RUN chgrp -R 0 ${KO_APP} && \
     chmod -R g+rwX ${KO_APP}
 
 LABEL \
-    com.redhat.component="openshift-pipelines-git-init-rhel9-container" \
+    com.redhat.component="openshift-pipelines-git-init-rhel10-container" \
     cpe="cpe:/a:redhat:openshift_pipelines:nightly::el9" \
     description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.k8s.description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.k8s.display-name="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.openshift.tags="tekton,openshift,tektoncd-git-clone,git-init" \
     maintainer="pipelines-extcomm@redhat.com" \
-    name="openshift-pipelines/pipelines-git-init-rhel9" \
+    name="openshift-pipelines/pipelines-git-init-rhel10" \
     summary="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
-    version="latest"
+    version="nightly"
 
 RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot -d /home/git -m nonroot
 USER 65532
