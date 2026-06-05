@@ -1,59 +1,62 @@
-# git-clone
-
 # Git Clone Task for Tekton
 
-This repository contains the git-clone Task for Tekton Pipelines, providing Git repository cloning capabilities.
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/git-clone)](https://artifacthub.io/packages/search?repo=git-clone)
 
-## Recent Fixes
+This repository contains the `git-clone` [Task](task/git-clone/) and [StepAction](stepaction/git-clone/) for [Tekton Pipelines](https://tekton.dev/), providing Git repository cloning capabilities.
 
-### Git Remote Origin Error Fix
+## Installation
 
-**Problem**: The git-clone task was logging an error message:
+Install the Task directly:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/tektoncd-catalog/git-clone/main/task/git-clone/git-clone.yaml
 ```
-Error running git [remote get-url origin]: exit status 2
-error: No such remote 'origin'
+
+Or use a [Tekton Bundle](https://tekton.dev/docs/pipelines/tekton-bundle-contracts/) with the bundle resolver:
+
+```yaml
+taskRef:
+  resolver: bundles
+  params:
+    - name: bundle
+      value: ghcr.io/tektoncd-catalog/git-clone/bundle:v1.6.0
+    - name: name
+      value: git-clone
+    - name: kind
+      value: task
 ```
 
-This occurred because the original code tried to check if the "origin" remote existed using `git remote get-url origin`, which fails on fresh repositories where no remotes exist yet.
+## Quick Start
 
-**Solution**: The code now:
-1. Uses `git remote` to safely list existing remotes (this command never fails)
-2. Checks if "origin" is in the list of existing remotes
-3. If the remote exists, updates its URL using `git remote set-url`
-4. If the remote doesn't exist, adds it using `git remote add`
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: git-clone-
+spec:
+  taskRef:
+    name: git-clone
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  workspaces:
+    - name: output
+      emptyDir: {}
+  params:
+    - name: url
+      value: https://github.com/tektoncd-catalog/git-clone
+```
 
-This approach completely eliminates error logging while maintaining all functionality for both fresh repositories and reused workspaces.
+## Documentation
 
-**Files Modified**: 
-- `image/git-init/git/git.go` - Updated the `fetchOrigin` function with robust remote handling
-
-**Benefits**:
-- Eliminates spurious error messages in pipeline logs
-- Works correctly with both fresh repositories and reused workspaces  
-- Maintains backward compatibility
-- Provides cleaner, more reliable git operations
+- **[Task reference](task/git-clone/README.md)** — full parameter, workspace, and authentication docs
+- **[StepAction reference](stepaction/git-clone/README.md)** — composable step version
 
 ## Building
 
-To build the updated git-init binary:
+To build the `git-init` image:
+
 ```bash
 cd image/git-init
 ko build --local .
 ```
-
-## Testing
-
-The fix handles these scenarios correctly:
-- Fresh repository: `git remote add origin <URL>` succeeds ✅
-- Reused workspace with same URL: `git remote add` fails → `git remote set-url` succeeds ✅
-- Reused workspace with different URL: `git remote add` fails → `git remote set-url` updates URL ✅
-- Invalid configuration: Both operations fail → reports actual error ✅
-
-## Image Reference:
-```
-ttl.sh/git-init-4025e1c5f1230d5d5dc600e50e1bdbad@sha256:8cf5621926dab695e3ab03777529b680ba812ff3b7ec9cd6610770c2828e5255
-```
-
-## Where to use it:
-
-Let me check the
