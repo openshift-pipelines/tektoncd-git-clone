@@ -17,6 +17,7 @@ package git
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -204,7 +205,9 @@ func TestUserHasKnownHostsFile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			homedir := t.TempDir()
 			if tt.wantKnownHostsFile {
-				os.MkdirAll(filepath.Join(homedir, ".ssh"), fileMode)
+				if err := os.MkdirAll(filepath.Join(homedir, ".ssh"), fileMode); err != nil {
+					t.Fatalf("Could not create .ssh dir: %v", err)
+				}
 				knownHostsFile := filepath.Join(homedir, sshKnownHostsUserPath)
 				_, err := os.Create(knownHostsFile)
 				if err != nil {
@@ -361,6 +364,23 @@ func TestFetch(t *testing.T) {
 				HTTPSProxy:     "",
 				NOProxy:        "",
 			},
+		}, {
+			name:       "test-clone-with-depth",
+			logMessage: "Successfully cloned",
+			wantErr:    false,
+			spec: FetchSpec{
+				URL:                       "",
+				Revision:                  "",
+				Refspec:                   "",
+				Path:                      "",
+				Depth:                     1,
+				Submodules:                false,
+				SSLVerify:                 false,
+				HTTPProxy:                 "",
+				HTTPSProxy:                "",
+				NOProxy:                   "",
+				SparseCheckoutDirectories: "",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -372,6 +392,7 @@ func TestFetch(t *testing.T) {
 				}
 			}()
 			logger := zap.New(observer).Sugar()
+			logLine := 1
 
 			submodPath := ""
 			submodName := "default"
@@ -408,7 +429,7 @@ func TestFetch(t *testing.T) {
 				if err != nil {
 					t.Fatal("Unable to read sparse-checkout file")
 				}
-				defer sparseFile.Close()
+				defer func() { _ = sparseFile.Close() }()
 
 				var sparsePatterns []string
 
@@ -421,10 +442,42 @@ func TestFetch(t *testing.T) {
 					t.Errorf("directory patterns and sparse-checkout patterns do not match")
 				}
 			}
-			logLine := 1
+
+			if tt.spec.Depth > 0 {
+				shallowFile, err := os.Open(".git/shallow")
+				if err != nil {
+					t.Fatal("Faile to read shallow file")
+				}
+				defer func() { _ = shallowFile.Close() }()
+
+				var commitCount int
+				scanner := bufio.NewScanner(shallowFile)
+				for scanner.Scan() {
+					commitCount++
+				}
+				if commitCount != int(tt.spec.Depth) {
+					t.Errorf("Expected %d commits in shallow file, got %d", tt.spec.Depth, commitCount)
+				}
+
+				// Verify remote.origin.fetch was unset
+				_, err = run(logger, "", "config", "--get", "remote.origin.fetch")
+				if err == nil {
+					t.Error("git fetch config should be unset for a shallow clone")
+				}
+			}
+
 			if tt.spec.Submodules {
+				submoduleDirs, err := filepath.Glob(".git/modules/*")
+				if err != nil {
+					t.Fatalf("Error finding submodule directories: %v", err)
+				}
+
+				if len(submoduleDirs) == 0 {
+					t.Error("No cloned submodules found")
+				}
 				logLine = 3
 			}
+
 			checkLogMessage(t, tt.logMessage, log, logLine)
 		})
 	}
@@ -508,6 +561,48 @@ func (f *SucceedAfter) Run() (string, error) {
 		return "success", nil
 	}
 	return "", fmt.Errorf("temporary error")
+}
+
+func TestBuildSubmoduleUpdateArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		spec     FetchSpec
+		expected []string
+	}{
+		{
+			name: "no depth, no submodule paths",
+			spec: FetchSpec{
+				Depth:          0,
+				SubmodulePaths: nil,
+			},
+			expected: []string{"submodule", "update", "--recursive", "--init", "--force"},
+		},
+		{
+			name: "with depth, no submodule paths",
+			spec: FetchSpec{
+				Depth:          5,
+				SubmodulePaths: nil,
+			},
+			expected: []string{"submodule", "update", "--recursive", "--init", "--force", "--depth=5"},
+		},
+		{
+			name: "no depth, with submodule paths",
+			spec: FetchSpec{
+				Depth:          0,
+				SubmodulePaths: []string{"path/to/submod1", "path/to/submod2"},
+			},
+			expected: []string{"submodule", "update", "--recursive", "--init", "--force", "path/to/submod1", "path/to/submod2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildSubmoduleUpdateArgs(tt.spec)
+			if diff := cmp.Diff(tt.expected, got); diff != "" {
+				t.Errorf("buildSubmoduleUpdateArgs() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
 
 func TestRetryWithBackoff(t *testing.T) {
@@ -613,6 +708,281 @@ func TestRetryWithBackoff(t *testing.T) {
 			}
 			if waitTime > tt.expectedMax {
 				t.Errorf("Expected duration <= %v, got %v", tt.expectedMax, waitTime)
+			}
+		})
+	}
+}
+
+func TestGitError_Error(t *testing.T) {
+	tests := []struct {
+		name     string
+		gitErr   GitError
+		expected string
+	}{
+		{
+			name: "with output",
+			gitErr: GitError{
+				Args:   []string{"fetch", "origin"},
+				Output: "fatal: could not read Username\n",
+				Err:    fmt.Errorf("exit status 128"),
+			},
+			expected: "exit status 128: fatal: could not read Username",
+		},
+		{
+			name: "without output",
+			gitErr: GitError{
+				Args: []string{"fetch", "origin"},
+				Err:  fmt.Errorf("exit status 128"),
+			},
+			expected: "exit status 128",
+		},
+		{
+			name: "empty output",
+			gitErr: GitError{
+				Args:   []string{"fetch"},
+				Output: "  \n  ",
+				Err:    fmt.Errorf("exit status 1"),
+			},
+			expected: "exit status 1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.gitErr.Error()
+			if got != tt.expected {
+				t.Errorf("GitError.Error() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGitError_Unwrap(t *testing.T) {
+	inner := fmt.Errorf("exit status 128")
+	gitErr := &GitError{Err: inner}
+	wrapped := fmt.Errorf("failed to fetch: %w", gitErr)
+
+	var target *GitError
+	if !errors.As(wrapped, &target) {
+		t.Fatal("errors.As should find GitError in wrapped error chain")
+	}
+	if target.Err != inner {
+		t.Errorf("unwrapped inner error = %v, want %v", target.Err, inner)
+	}
+}
+
+func TestRedactCredentials(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "https with credentials",
+			input:    "https://user:pass@github.com/org/repo",
+			expected: "https://****@github.com/org/repo",
+		},
+		{
+			name:     "http with credentials",
+			input:    "http://token@gitlab.com/org/repo",
+			expected: "http://****@gitlab.com/org/repo",
+		},
+		{
+			name:     "no credentials",
+			input:    "https://github.com/org/repo",
+			expected: "https://github.com/org/repo",
+		},
+		{
+			name:     "ssh url unchanged",
+			input:    "git@github.com:org/repo.git",
+			expected: "git@github.com:org/repo.git",
+		},
+		{
+			name:     "credentials in error message",
+			input:    "fatal: Authentication failed for 'https://user:secret@github.com/org/repo'",
+			expected: "fatal: Authentication failed for 'https://****@github.com/org/repo'",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := redactCredentials(tt.input)
+			if got != tt.expected {
+				t.Errorf("redactCredentials(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFormatUserFriendlyError(t *testing.T) {
+	tests := []struct {
+		name            string
+		spec            FetchSpec
+		err             error
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name: "auth error with hint",
+			spec: FetchSpec{
+				URL:      "https://github.com/org/repo",
+				Revision: "abc123",
+				Depth:    1,
+			},
+			err: &GitError{
+				Output: "fatal: could not read Username for 'https://github.com': No such device or address\n",
+				Err:    fmt.Errorf("exit status 128"),
+			},
+			wantContains: []string{
+				"Git Clone Failed",
+				"could not read Username",
+				"basic-auth",
+				"ssh-directory",
+				"git init <dir>",
+				"git remote add origin https://github.com/org/repo",
+				"git fetch origin --depth=1 abc123",
+				"git checkout abc123",
+			},
+		},
+		{
+			name: "unknown error without hint",
+			spec: FetchSpec{
+				URL:   "https://github.com/org/repo",
+				Depth: 1,
+			},
+			err: fmt.Errorf("some unknown error"),
+			wantContains: []string{
+				"Git Clone Failed",
+				"some unknown error",
+				"git fetch origin --depth=1",
+				"git checkout FETCH_HEAD",
+			},
+			wantNotContains: []string{
+				"Hint:",
+			},
+		},
+		{
+			name: "case insensitive hint matching",
+			spec: FetchSpec{
+				URL:   "https://github.com/org/repo",
+				Depth: 0,
+			},
+			err: &GitError{
+				Output: "FATAL: COULD NOT READ USERNAME\n",
+				Err:    fmt.Errorf("exit status 128"),
+			},
+			wantContains: []string{
+				"Hint:",
+				"basic-auth",
+			},
+		},
+		{
+			name: "credentials redacted in output",
+			spec: FetchSpec{
+				URL:   "https://user:secret@github.com/org/repo",
+				Depth: 1,
+			},
+			err: &GitError{
+				Output: "fatal: Authentication failed for 'https://user:secret@github.com/org/repo'\n",
+				Err:    fmt.Errorf("exit status 128"),
+			},
+			wantContains: []string{
+				"****@github.com",
+			},
+			wantNotContains: []string{
+				"user:secret",
+			},
+		},
+		{
+			name: "ssl certificate error",
+			spec: FetchSpec{
+				URL:   "https://git.internal.com/repo",
+				Depth: 1,
+			},
+			err: &GitError{
+				Output: "fatal: unable to access: SSL certificate problem: self-signed certificate\n",
+				Err:    fmt.Errorf("exit status 128"),
+			},
+			wantContains: []string{
+				"ssl-ca-directory",
+				"sslVerify",
+			},
+		},
+		{
+			name: "connection refused",
+			spec: FetchSpec{
+				URL:   "https://git.example.com/repo",
+				Depth: 1,
+			},
+			err: &GitError{
+				Output: "fatal: unable to access: Failed to connect to git.example.com port 443: Connection refused\n",
+				Err:    fmt.Errorf("exit status 128"),
+			},
+			wantContains: []string{
+				"refused the connection",
+			},
+		},
+		{
+			name: "remote ref not found",
+			spec: FetchSpec{
+				URL:      "https://github.com/org/repo",
+				Revision: "nonexistent-branch",
+				Depth:    1,
+			},
+			err: &GitError{
+				Output: "fatal: couldn't find remote ref nonexistent-branch\n",
+				Err:    fmt.Errorf("exit status 128"),
+			},
+			wantContains: []string{
+				"revision, branch, or tag was not found",
+			},
+		},
+		{
+			name: "refspec included in fetch command",
+			spec: FetchSpec{
+				URL:      "https://github.com/org/repo",
+				Revision: "main",
+				Refspec:  "refs/heads/main:refs/heads/main",
+				Depth:    1,
+			},
+			err: &GitError{
+				Output: "fatal: couldn't find remote ref\n",
+				Err:    fmt.Errorf("exit status 128"),
+			},
+			wantContains: []string{
+				"git fetch origin --depth=1 refs/heads/main:refs/heads/main",
+				"git checkout main",
+			},
+			wantNotContains: []string{
+				"git fetch origin --depth=1 main",
+			},
+		},
+		{
+			name: "depth zero omits depth flag",
+			spec: FetchSpec{
+				URL:      "https://github.com/org/repo",
+				Revision: "main",
+				Depth:    0,
+			},
+			err: fmt.Errorf("some error"),
+			wantNotContains: []string{
+				"--depth=",
+			},
+			wantContains: []string{
+				"git fetch origin main",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatUserFriendlyError(tt.spec, tt.err)
+			for _, want := range tt.wantContains {
+				if !strings.Contains(got, want) {
+					t.Errorf("FormatUserFriendlyError() missing %q in:\n%s", want, got)
+				}
+			}
+			for _, notWant := range tt.wantNotContains {
+				if strings.Contains(got, notWant) {
+					t.Errorf("FormatUserFriendlyError() should not contain %q in:\n%s", notWant, got)
+				}
 			}
 		})
 	}
