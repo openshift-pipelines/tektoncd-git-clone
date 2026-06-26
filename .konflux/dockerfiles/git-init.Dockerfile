@@ -38,8 +38,4 @@ LABEL \
     summary="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     version="v1.15.5"
 
-RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot -d /home/git -m nonroot
-USER 65532
-
 ENTRYPOINT ["/ko-app/git-init"]
-# trigger rebuild 2026-02-14
