@@ -1,0 +1,165 @@
+name: Build
+
+on:
+  pull_request:
+    branches: ['main']
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: image/git-init
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "image/git-init/go.mod"
+          cache-dependency-path: "image/git-init/go.sum"
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+
+      - name: Verify StepAction is in sync
+        working-directory: .
+        run: |
+          ./hack/generate-stepaction.sh
+          if ! git diff --exit-code stepaction/; then
+            echo "StepAction is out of sync with Task. Run: ./hack/generate-stepaction.sh"
+            exit 1
+          fi
+
+  e2e:
+    name: E2E (${{ matrix.pipeline-version }})
+    needs: [build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # All supported Tekton Pipelines LTS versions
+        # Update quarterly when new LTS is released
+        pipeline-version:
+          - v1.12.0  # LTS, EOL 2027-05-04
+          - v1.9.3   # LTS, EOL 2027-01-30
+          - v1.6.2   # LTS, EOL 2026-10-31
+          - v1.3.4   # LTS, EOL 2026-08-04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "image/git-init/go.mod"
+          cache-dependency-path: "image/git-init/go.sum"
+
+      - uses: ko-build/setup-ko@61b4d1d396f5b2e7d6bb6fefdce3dc38d1a13445 # v0.10
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: kind
+          wait: 120s
+
+      - name: Build base image
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/base:latest image/base/
+          docker tag ghcr.io/${{ github.repository }}/base:latest ko.local/git-clone-base:latest
+
+      - name: Build and load image into Kind
+        env:
+          KO_DOCKER_REPO: kind.local
+          KO_DEFAULTBASEIMAGE: ko.local/git-clone-base:latest
+        run: |
+          cd image/git-init
+          ko build --sbom=none -B -t e2e .
+          echo "GIT_INIT_IMAGE=kind.local/git-init:e2e" >> "$GITHUB_ENV"
+
+      - name: Run e2e tests
+        env:
+          PIPELINE_VERSION: ${{ matrix.pipeline-version }}
+          TIMEOUT: 180s
+        run: ./test/e2e-tests.sh
+
+  e2e-bundle:
+    name: E2E Bundle
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "image/git-init/go.mod"
+          cache-dependency-path: "image/git-init/go.sum"
+
+      - uses: ko-build/setup-ko@61b4d1d396f5b2e7d6bb6fefdce3dc38d1a13445 # v0.10
+
+      - uses: tektoncd/actions/setup-tektoncd-cli@dd92514472167b361de1c95fd31fc2ef83c282ec # main
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: kind
+          wait: 120s
+
+      - name: Build base image
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/base:latest image/base/
+          docker tag ghcr.io/${{ github.repository }}/base:latest ko.local/git-clone-base:latest
+
+      - name: Build and load image into Kind
+        env:
+          KO_DOCKER_REPO: kind.local
+          KO_DEFAULTBASEIMAGE: ko.local/git-clone-base:latest
+        run: |
+          cd image/git-init
+          ko build --sbom=none -B -t e2e .
+          echo "GIT_INIT_IMAGE=kind.local/git-init:e2e" >> "$GITHUB_ENV"
+
+      - name: Run bundle e2e test
+        env:
+          PIPELINE_VERSION: v1.12.0
+          TIMEOUT: 180s
+        run: ./test/e2e-bundle-test.sh
+
+  ci-summary:
+    name: CI summary
+    needs: [build, e2e, e2e-bundle]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check CI results
+        run: |
+          results=(
+            "build=${NEEDS_BUILD_RESULT}"
+            "e2e=${NEEDS_E2E_RESULT}"
+            "e2e-bundle=${NEEDS_E2E_BUNDLE_RESULT}"
+          )
+          failed=0
+          for r in "${results[@]}"; do
+            name="${r%%=*}"
+            result="${r#*=}"
+            echo "${name}: ${result}"
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo ""
+            echo "Some CI jobs failed or were cancelled"
+            exit 1
+          fi
+          echo ""
+          echo "All CI checks passed"
+        env:
+          NEEDS_BUILD_RESULT: ${{ needs.build.result }}
+          NEEDS_E2E_RESULT: ${{ needs.e2e.result }}
+          NEEDS_E2E_BUNDLE_RESULT: ${{ needs.e2e-bundle.result }}
