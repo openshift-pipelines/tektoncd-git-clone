@@ -10,7 +10,7 @@ COPY .konflux/patches patches/
 RUN set -e; for f in patches/*.patch; do echo ${f}; [[ -f ${f} ]] || continue; git apply ${f}; done
 COPY head HEAD
 ENV GODEBUG="http2server=0"
-RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -v -o /tmp/tektoncd-catalog-git-clone
+RUN HEAD_SHA=$(cat HEAD) && cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev='${HEAD_SHA}" -mod=vendor -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
 ARG VERSION=1.15
@@ -19,7 +19,7 @@ ENV BINARY=git-init \
     KO_APP=/ko-app \
     KO_DATA_PATH=/kodata
 
-RUN dnf install -y --nobest openssh-clients git git-lfs shadow-utils
+RUN dnf install -y openssh-clients git-core git-lfs shadow-utils
 
 COPY --from=builder /tmp/tektoncd-catalog-git-clone ${KO_APP}/${BINARY}
 COPY head ${KO_DATA_PATH}/HEAD
