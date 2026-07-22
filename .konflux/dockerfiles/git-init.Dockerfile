@@ -28,7 +28,7 @@ RUN chgrp -R 0 ${KO_APP} && \
 
 LABEL \
     com.redhat.component="openshift-pipelines-git-init-rhel10-container" \
-    cpe="cpe:/a:redhat:openshift_pipelines:nightly::el9" \
+    cpe="cpe:/a:redhat:openshift_pipelines:nightly::el10" \
     description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.k8s.description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.k8s.display-name="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
