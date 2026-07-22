@@ -1,6 +1,6 @@
 # Rebuild trigger: 1.15.4 release 2026-02-26 
 ARG GO_BUILDER=registry.access.redhat.com/ubi8/go-toolset:latest
-ARG RUNTIME=registry.redhat.io/ubi8/ubi:latest@sha256:8f757bfe94700eee7d26c885cd16bf3ae9923edf38f984ef3da50d2ce937fc5e
+ARG RUNTIME=registry.redhat.io/ubi8/ubi:latest
 
 FROM $GO_BUILDER AS builder
 
@@ -10,7 +10,7 @@ COPY .konflux/patches patches/
 RUN set -e; for f in patches/*.patch; do echo ${f}; [[ -f ${f} ]] || continue; git apply ${f}; done
 COPY head HEAD
 ENV GODEBUG="http2server=0"
-RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -v -o /tmp/tektoncd-catalog-git-clone
+RUN HEAD_SHA=$(cat HEAD) && cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=${HEAD_SHA}'" -mod=vendor -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $RUNTIME
 ARG VERSION=1.15
@@ -19,7 +19,7 @@ ENV BINARY=git-init \
     KO_APP=/ko-app \
     KO_DATA_PATH=/kodata
 
-RUN dnf install -y openssh-clients git git-lfs shadow-utils
+RUN dnf install -y openssh-clients git-core git-lfs shadow-utils
 
 COPY --from=builder /tmp/tektoncd-catalog-git-clone ${KO_APP}/${BINARY}
 COPY head ${KO_DATA_PATH}/HEAD
@@ -42,4 +42,3 @@ RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot
 USER 65532
 
 ENTRYPOINT ["/ko-app/git-init"]
-# trigger rebuild 2026-02-14
