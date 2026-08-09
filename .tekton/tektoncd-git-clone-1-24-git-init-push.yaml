@@ -10,16 +10,16 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "next" &&
+      == "release-v1.24.x" &&
       ("upstream/***".pathChanged() || ".konflux/patches/***".pathChanged() || ".konflux/rpms/***".pathChanged() ||
       ".konflux/dockerfiles/git-init.Dockerfile".pathChanged() ||
-      ".tekton/tektoncd-git-clone-next-git-init-push.yaml".pathChanged())
+      ".tekton/tektoncd-git-clone-1-24-git-init-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: openshift-pipelines-core-next
-    appstudio.openshift.io/component: tektoncd-git-clone-next-git-init
+    appstudio.openshift.io/application: openshift-pipelines-core-1-24
+    appstudio.openshift.io/component: tektoncd-git-clone-1-24-git-init
     pipelines.appstudio.openshift.io/type: build
-  name: tektoncd-git-clone-next-git-init-on-push
+  name: tektoncd-git-clone-1-24-git-init-on-push
   namespace: tekton-ecosystem-tenant
 spec:
   params:
@@ -35,7 +35,7 @@ spec:
     value: .konflux/dockerfiles/git-init.Dockerfile
   - name: additional-tags
     value:
-      - "next"
+      - "v1.24.0-RC-1"
   - name: prefetch-input
     value: |
       {"type": "rpm", "path": ".konflux/rpms"}
@@ -47,7 +47,7 @@ spec:
   pipelineRef:
     name: docker-build-ta
   taskRunTemplate:
-    serviceAccountName: build-pipeline-tektoncd-git-clone-next-git-init
+    serviceAccountName: build-pipeline-tektoncd-git-clone-1-24-git-init
   workspaces:
   - name: git-auth
     secret:
