@@ -248,7 +248,10 @@ spec:
       RESULT_COMMITTER_DATE="$(git log -1 --pretty=%ct)"
       printf "%s" "${RESULT_COMMITTER_DATE}" > "$(results.committer-date.path)"
       printf "%s" "${RESULT_SHA}" > "$(results.commit.path)"
-      printf "%s" "${PARAM_URL}" > "$(results.url.path)"
+      { set +x; } 2>/dev/null
+      REDACTED_URL="$(printf "%s" "${PARAM_URL}" | sed -E 's|://[^@/]+@|://****@|')"
+      printf "%s" "${REDACTED_URL}" > "$(results.url.path)"
+      if [ "${PARAM_VERBOSE}" = "true" ] ; then set -x; echo "results.url: ${REDACTED_URL}"; fi
     securityContext:
       runAsNonRoot: true
       runAsUser: 65532
