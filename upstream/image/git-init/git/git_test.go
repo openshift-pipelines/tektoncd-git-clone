@@ -550,6 +550,96 @@ func checkLogMessage(t *testing.T, logMessage string, log *observer.ObservedLogs
 	}
 }
 
+func TestValidateNotOption(t *testing.T) {
+	tests := []struct {
+		name    string
+		field   string
+		value   string
+		wantErr bool
+	}{
+		{name: "valid revision", field: "revision", value: "main", wantErr: false},
+		{name: "valid sha", field: "revision", value: "abc123", wantErr: false},
+		{name: "valid refspec", field: "refspec", value: "refs/heads/main:refs/heads/main", wantErr: false},
+		{name: "option injection single dash", field: "revision", value: "-o evil", wantErr: true},
+		{name: "option injection double dash", field: "revision", value: "--upload-pack=evil", wantErr: true},
+		{name: "option injection in refspec", field: "refspec", value: "--upload-pack=evil", wantErr: true},
+		{name: "option injection second word", field: "refspec", value: "refs/heads/main --upload-pack=evil", wantErr: true},
+		{name: "empty value", field: "revision", value: "", wantErr: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateNotOption(tt.field, tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateNotOption(%q, %q) error = %v, wantErr %v", tt.field, tt.value, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFetchRejectsOptionInjection(t *testing.T) {
+	withTemporaryGitConfig(t)
+	observer, _ := observer.New(zap.InfoLevel)
+	logger := zap.New(observer).Sugar()
+
+	tests := []struct {
+		name string
+		spec FetchSpec
+	}{
+		{
+			name: "revision with leading dash",
+			spec: FetchSpec{URL: "https://example.com/repo", Revision: "--upload-pack=evil"},
+		},
+		{
+			name: "refspec with leading dash",
+			spec: FetchSpec{URL: "https://example.com/repo", Refspec: "--upload-pack=evil"},
+		},
+		{
+			name: "refspec with injected option after space",
+			spec: FetchSpec{URL: "https://example.com/repo", Refspec: "refs/heads/main --upload-pack=evil"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Fetch(logger, tt.spec, RetryConfig{
+				Initial:     1 * time.Millisecond,
+				Max:         1 * time.Millisecond,
+				Factor:      1.0,
+				MaxAttempts: 1,
+			})
+			if err == nil {
+				t.Error("Fetch() should reject option-like revision/refspec values")
+			}
+			if !strings.Contains(err.Error(), "must not start with a dash") {
+				t.Errorf("Fetch() error should mention dash validation, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestShowCommitRejectsOptionInjection(t *testing.T) {
+	observer, _ := observer.New(zap.InfoLevel)
+	logger := zap.New(observer).Sugar()
+
+	tests := []struct {
+		name     string
+		revision string
+	}{
+		{name: "double dash option", revision: "--upload-pack=evil"},
+		{name: "single dash option", revision: "-n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ShowCommit(logger, tt.revision, "")
+			if err == nil {
+				t.Error("ShowCommit() should reject option-like revision")
+			}
+			if !strings.Contains(err.Error(), "must not start with a dash") {
+				t.Errorf("ShowCommit() error should mention dash validation, got: %v", err)
+			}
+		})
+	}
+}
+
 type SucceedAfter struct {
 	try       int
 	callCount int

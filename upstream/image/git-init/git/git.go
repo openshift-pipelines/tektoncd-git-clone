@@ -101,8 +101,27 @@ type RetryConfig struct {
 	MaxAttempts int
 }
 
+func validateNotOption(name, value string) error {
+	for _, part := range strings.Fields(value) {
+		if strings.HasPrefix(part, "-") {
+			return fmt.Errorf("%s %q must not start with a dash", name, part)
+		}
+	}
+	return nil
+}
+
 // Fetch fetches the specified git repository at the revision into path, using the refspec to fetch if provided.
 func Fetch(logger *zap.SugaredLogger, spec FetchSpec, retryConfig RetryConfig) error {
+	if spec.Revision != "" {
+		if err := validateNotOption("revision", spec.Revision); err != nil {
+			return err
+		}
+	}
+	if spec.Refspec != "" {
+		if err := validateNotOption("refspec", spec.Refspec); err != nil {
+			return err
+		}
+	}
 	homepath, err := homedir.Dir()
 	if err != nil {
 		logger.Errorf("Unexpected error getting the user home directory: %v", err)
@@ -210,7 +229,7 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec, retryConfig RetryConfig) e
 	// The --force parameter tells git-fetch that its ok to update an existing HEAD in a
 	// non-fast-forward manner (though this cannot be possible on initial fetch, it can help
 	// when the refspec specifies the same destination twice)
-	fetchArgs = append(fetchArgs, "origin", "--update-head-ok", "--force")
+	fetchArgs = append(fetchArgs, "origin", "--update-head-ok", "--force", "--")
 	fetchArgs = append(fetchArgs, fetchParam...)
 	if _, _, err := retryWithBackoff(
 		func() (string, error) { return run(logger, spec.Path, fetchArgs...) },
@@ -250,7 +269,10 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec, retryConfig RetryConfig) e
 
 // ShowCommit calls "git show ..." to get the commit SHA for the given revision
 func ShowCommit(logger *zap.SugaredLogger, revision, path string) (string, error) {
-	output, err := run(logger, path, "show", "-q", "--pretty=format:%H", revision)
+	if err := validateNotOption("revision", revision); err != nil {
+		return "", err
+	}
+	output, err := run(logger, path, "show", "-q", "--pretty=format:%H", revision, "--")
 	if err != nil {
 		return "", err
 	}
@@ -258,7 +280,7 @@ func ShowCommit(logger *zap.SugaredLogger, revision, path string) (string, error
 }
 
 func showRef(logger *zap.SugaredLogger, revision, path string) (string, error) {
-	output, err := run(logger, path, "show", "-q", "--pretty=format:%D", revision)
+	output, err := run(logger, path, "show", "-q", "--pretty=format:%D", revision, "--")
 	if err != nil {
 		return "", err
 	}
