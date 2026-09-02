@@ -804,7 +804,7 @@ func TestRedactCredentials(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := redactCredentials(tt.input)
+			got := RedactCredentials(tt.input)
 			if got != tt.expected {
 				t.Errorf("redactCredentials(%q) = %q, want %q", tt.input, got, tt.expected)
 			}
@@ -985,5 +985,90 @@ func TestFormatUserFriendlyError(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRedactArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected []string
+	}{
+		{
+			name:     "no credentials in args",
+			args:     []string{"fetch", "origin", "--depth=1", "main"},
+			expected: []string{"fetch", "origin", "--depth=1", "main"},
+		},
+		{
+			name:     "credentials in remote add",
+			args:     []string{"remote", "add", "origin", "https://user:token@github.com/org/repo"},
+			expected: []string{"remote", "add", "origin", "https://****@github.com/org/repo"},
+		},
+		{
+			name:     "credentials in remote set-url",
+			args:     []string{"remote", "set-url", "origin", "https://oauth2:ghp_abc123@github.com/org/repo"},
+			expected: []string{"remote", "set-url", "origin", "https://****@github.com/org/repo"},
+		},
+		{
+			name:     "ssh url not redacted",
+			args:     []string{"remote", "add", "origin", "ssh://git@github.com:org/repo.git"},
+			expected: []string{"remote", "add", "origin", "ssh://git@github.com:org/repo.git"},
+		},
+		{
+			name:     "empty args",
+			args:     []string{},
+			expected: []string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := redactArgs(tt.args)
+			if diff := cmp.Diff(tt.expected, got); diff != "" {
+				t.Errorf("redactArgs() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRunRedactsCredentialsInLogs(t *testing.T) {
+	withTemporaryGitConfig(t)
+	obs, log := observer.New(zap.InfoLevel)
+	logger := zap.New(obs).Sugar()
+
+	dir := t.TempDir()
+	_, _ = run(logger, dir, "remote", "add", "origin", "https://user:secret@github.com/org/repo")
+
+	for _, entry := range log.All() {
+		if strings.Contains(entry.Message, "user:secret") {
+			t.Errorf("Credential leaked in log message: %s", entry.Message)
+		}
+	}
+}
+
+func TestFetchLogsRedactedURL(t *testing.T) {
+	withTemporaryGitConfig(t)
+	obs, log := observer.New(zap.InfoLevel)
+	logger := zap.New(obs).Sugar()
+
+	gitDir := t.TempDir()
+	createTempGit(t, logger, gitDir, "", "")
+
+	targetPath := t.TempDir()
+	spec := FetchSpec{
+		URL:  "https://myuser:supersecret@example.com/fake",
+		Path: targetPath,
+	}
+
+	_ = Fetch(logger, spec, RetryConfig{
+		Initial:     100 * time.Millisecond,
+		Max:         100 * time.Millisecond,
+		Factor:      1.0,
+		MaxAttempts: 1,
+	})
+
+	for _, entry := range log.All() {
+		if strings.Contains(entry.Message, "supersecret") {
+			t.Errorf("Credential leaked in log message: %q", entry.Message)
+		}
 	}
 }

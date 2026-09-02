@@ -72,7 +72,7 @@ func run(logger *zap.SugaredLogger, dir string, args ...string) (string, error) 
 		c.Dir = dir
 	}
 	if err := c.Run(); err != nil {
-		logger.Errorf("Error running git %v: %v\n%v", args, err, output.String())
+		logger.Errorf("Error running git %v: %v\n%v", redactArgs(args), err, RedactCredentials(output.String()))
 		return "", &GitError{Args: args, Dir: dir, Output: output.String(), Err: err}
 	}
 	return output.String(), nil
@@ -239,7 +239,7 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec, retryConfig RetryConfig) e
 	if err != nil {
 		return err
 	}
-	logger.Infof("Successfully cloned %s @ %s (%s) in path %s", trimmedURL, commit, ref, spec.Path)
+	logger.Infof("Successfully cloned %s @ %s (%s) in path %s", RedactCredentials(trimmedURL), commit, ref, spec.Path)
 	if spec.Submodules {
 		if err := submoduleFetch(logger, spec, retryConfig); err != nil {
 			return err
@@ -347,9 +347,9 @@ func validateGitAuth(logger *zap.SugaredLogger, credsDir, url string) {
 	}
 	urlSSHFormat := validateGitSSHURLFormat(url)
 	if sshCred && !urlSSHFormat {
-		logger.Warnf("SSH credentials have been provided but the URL(%q) is not a valid SSH URL. This warning can be safely ignored if the URL is for a public repo or you are using basic auth", url)
+		logger.Warnf("SSH credentials have been provided but the URL(%q) is not a valid SSH URL. This warning can be safely ignored if the URL is for a public repo or you are using basic auth", RedactCredentials(url))
 	} else if !sshCred && urlSSHFormat {
-		logger.Warnf("URL(%q) appears to need SSH authentication but no SSH credentials have been provided", url)
+		logger.Warnf("URL(%q) appears to need SSH authentication but no SSH credentials have been provided", RedactCredentials(url))
 	}
 }
 
@@ -432,8 +432,16 @@ func retryWithBackoff[T any](
 
 var credentialURLPattern = regexp.MustCompile(`(https?://)([^@]+)@`)
 
-func redactCredentials(s string) string {
+func RedactCredentials(s string) string {
 	return credentialURLPattern.ReplaceAllString(s, "${1}****@")
+}
+
+func redactArgs(args []string) []string {
+	redacted := make([]string, len(args))
+	for i, a := range args {
+		redacted[i] = RedactCredentials(a)
+	}
+	return redacted
 }
 
 type errorHint struct {
@@ -477,9 +485,9 @@ func FormatUserFriendlyError(spec FetchSpec, err error) string {
 		errOutput = strings.TrimSpace(gitErr.Output)
 	}
 	if errOutput != "" {
-		sb.WriteString("Error:\n  " + redactCredentials(errOutput) + "\n\n")
+		sb.WriteString("Error:\n  " + RedactCredentials(errOutput) + "\n\n")
 	} else {
-		sb.WriteString("Error:\n  " + redactCredentials(err.Error()) + "\n\n")
+		sb.WriteString("Error:\n  " + RedactCredentials(err.Error()) + "\n\n")
 	}
 
 	fullText := strings.ToLower(errOutput + " " + err.Error())
@@ -490,7 +498,7 @@ func FormatUserFriendlyError(spec FetchSpec, err error) string {
 		}
 	}
 
-	url := redactCredentials(spec.URL)
+	url := RedactCredentials(spec.URL)
 	sb.WriteString("To reproduce locally, run:\n\n")
 	sb.WriteString("  git init <dir> && cd <dir>\n")
 	fmt.Fprintf(&sb, "  git remote add origin %s\n", url)
