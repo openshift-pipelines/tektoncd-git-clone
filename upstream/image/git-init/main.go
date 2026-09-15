@@ -96,7 +96,7 @@ func main() {
 		},
 		{
 			Key:   "url",
-			Value: git.RedactCredentials(fetchSpec.URL),
+			Value: fetchSpec.URL,
 		},
 	}
 
