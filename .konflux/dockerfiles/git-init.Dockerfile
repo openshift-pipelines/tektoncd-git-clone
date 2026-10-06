@@ -1,5 +1,5 @@
 # Rebuild trigger: 1.15.4 release 2026-02-26 
-ARG GO_BUILDER=registry.access.redhat.com/ubi8/go-toolset:latest@sha256:1439433a2cd76f0c20035001d46074e85a59ccd0d318a16023c3fd9fdd18ddf5
+ARG GO_BUILDER=registry.access.redhat.com/ubi9/go-toolset:1.25
 ARG RUNTIME=registry.redhat.io/ubi8/ubi:latest
 
 FROM $GO_BUILDER AS builder
@@ -27,14 +27,14 @@ RUN chgrp -R 0 ${KO_APP} && \
     chmod -R g+rwX ${KO_APP}
 
 LABEL \
-    com.redhat.component="openshift-pipelines-git-init-rhel8-container" \
-    cpe="cpe:/a:redhat:openshift_pipelines:1.15::el8" \
+    com.redhat.component="openshift-pipelines-git-init-rhel9-container" \
+    cpe="cpe:/a:redhat:openshift_pipelines:1.15::el9" \
     description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.k8s.description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.k8s.display-name="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.openshift.tags="tekton,openshift,tektoncd-git-clone,git-init" \
     maintainer="pipelines-extcomm@redhat.com" \
-    name="openshift-pipelines/pipelines-git-init-rhel8" \
+    name="openshift-pipelines/pipelines-git-init-rhel9" \
     summary="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     version="v1.15.5"
 
