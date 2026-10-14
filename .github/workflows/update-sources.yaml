@@ -33,8 +33,6 @@ jobs:
         run: |
           set -x
           export BASE_IMAGE=$(grep -h "RUNTIME=" .konflux/dockerfiles/* | sed -E 's/.*RUNTIME=["'\'']?([^"'\'' ]+).*/\1/' | head -n 1)
-          # Use public registry for GitHub Actions (registry.redhat.io requires authentication)
-          export BASE_IMAGE=${BASE_IMAGE//registry.redhat.io/registry.access.redhat.com}
           docker run --rm\
             -e BASE_IMAGE=$BASE_IMAGE \
             -v ./.konflux/rpms/:/rpms -w /rpms $BASE_IMAGE  sh -c "
