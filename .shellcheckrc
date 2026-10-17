@@ -1,2 +1,0 @@
-# Disable SC2091 globally (unnecessary $() around commands)
-disable=SC2091
