@@ -19,7 +19,6 @@ package v1beta1
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/tektoncd/pipeline/pkg/apis/version"
@@ -54,10 +53,7 @@ import (
 //	      "deprecatedSteps":[{"tty":true}],
 //	    },
 //	}`
-const (
-	TaskDeprecationsAnnotationKey = "tekton.dev/v1beta1.task-deprecations"
-	resourcesAnnotationKey        = "tekton.dev/v1beta1Resources"
-)
+const TaskDeprecationsAnnotationKey = "tekton.dev/v1beta1.task-deprecations"
 
 var _ apis.Convertible = (*Task)(nil)
 
@@ -69,9 +65,6 @@ func (t *Task) ConvertTo(ctx context.Context, to apis.Convertible) error {
 	switch sink := to.(type) {
 	case *v1.Task:
 		sink.ObjectMeta = t.ObjectMeta
-		if err := serializeResources(&sink.ObjectMeta, &t.Spec); err != nil {
-			return err
-		}
 		return t.Spec.ConvertTo(ctx, &sink.Spec, &sink.ObjectMeta, t.Name)
 	default:
 		return fmt.Errorf("unknown version, got: %T", sink)
@@ -132,9 +125,6 @@ func (t *Task) ConvertFrom(ctx context.Context, from apis.Convertible) error {
 	switch source := from.(type) {
 	case *v1.Task:
 		t.ObjectMeta = source.ObjectMeta
-		if err := deserializeResources(&t.ObjectMeta, &t.Spec); err != nil {
-			return err
-		}
 		return t.Spec.ConvertFrom(ctx, &source.Spec, &t.ObjectMeta, t.Name)
 	default:
 		return fmt.Errorf("unknown version, got: %T", t)
@@ -209,10 +199,10 @@ func serializeTaskDeprecations(meta *metav1.ObjectMeta, spec *TaskSpec, taskName
 	if spec.HasDeprecatedFields() {
 		taskDeprecation = retrieveTaskDeprecation(spec)
 	}
-	existingDeprecations := taskDeprecations{}
+	var existingDeprecations = taskDeprecations{}
 	if str, ok := meta.Annotations[TaskDeprecationsAnnotationKey]; ok {
 		if err := json.Unmarshal([]byte(str), &existingDeprecations); err != nil {
-			return fmt.Errorf("error serializing key %s from metadata: %w", TaskDeprecationsAnnotationKey, err)
+			return fmt.Errorf("error deserializing key %s from metadata: %w", TaskDeprecationsAnnotationKey, err)
 		}
 	}
 	if taskDeprecation != nil {
@@ -225,7 +215,7 @@ func serializeTaskDeprecations(meta *metav1.ObjectMeta, spec *TaskSpec, taskName
 // deserializeTaskDeprecations retrieves deprecation info of the Task from object annotation.
 // The object could be Task, TaskRun, Pipeline or PipelineRun.
 func deserializeTaskDeprecations(meta *metav1.ObjectMeta, spec *TaskSpec, taskName string) error {
-	existingDeprecations := taskDeprecations{}
+	var existingDeprecations = taskDeprecations{}
 	if meta == nil || meta.Annotations == nil {
 		return nil
 	}
@@ -236,9 +226,9 @@ func deserializeTaskDeprecations(meta *metav1.ObjectMeta, spec *TaskSpec, taskNa
 	}
 	if td, ok := existingDeprecations[taskName]; ok {
 		if len(spec.Steps) != len(td.DeprecatedSteps) {
-			return errors.New("length of deserialized steps mismatch the length of target steps")
+			return fmt.Errorf("length of deserialized steps mismatch the length of target steps")
 		}
-		for i := range len(spec.Steps) {
+		for i := 0; i < len(spec.Steps); i++ {
 			spec.Steps[i].DeprecatedPorts = td.DeprecatedSteps[i].DeprecatedPorts
 			spec.Steps[i].DeprecatedLivenessProbe = td.DeprecatedSteps[i].DeprecatedLivenessProbe
 			spec.Steps[i].DeprecatedReadinessProbe = td.DeprecatedSteps[i].DeprecatedReadinessProbe
@@ -322,23 +312,4 @@ func retrieveTaskDeprecation(spec *TaskSpec) *taskDeprecation {
 		DeprecatedSteps:        ds,
 		DeprecatedStepTemplate: dst,
 	}
-}
-
-func serializeResources(meta *metav1.ObjectMeta, spec *TaskSpec) error {
-	if spec.Resources == nil {
-		return nil
-	}
-	return version.SerializeToMetadata(meta, spec.Resources, resourcesAnnotationKey)
-}
-
-func deserializeResources(meta *metav1.ObjectMeta, spec *TaskSpec) error {
-	resources := &TaskResources{}
-	err := version.DeserializeFromMetadata(meta, resources, resourcesAnnotationKey)
-	if err != nil {
-		return err
-	}
-	if resources.Inputs != nil || resources.Outputs != nil {
-		spec.Resources = resources
-	}
-	return nil
 }

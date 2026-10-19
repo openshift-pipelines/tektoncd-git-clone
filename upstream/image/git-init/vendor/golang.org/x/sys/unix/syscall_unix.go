@@ -154,15 +154,6 @@ func Munmap(b []byte) (err error) {
 	return mapper.Munmap(b)
 }
 
-func MmapPtr(fd int, offset int64, addr unsafe.Pointer, length uintptr, prot int, flags int) (ret unsafe.Pointer, err error) {
-	xaddr, err := mapper.mmap(uintptr(addr), length, prot, flags, fd, offset)
-	return unsafe.Pointer(xaddr), err
-}
-
-func MunmapPtr(addr unsafe.Pointer, length uintptr) (err error) {
-	return mapper.munmap(uintptr(addr), length)
-}
-
 func Read(fd int, p []byte) (n int, err error) {
 	n, err = read(fd, p)
 	if raceenabled {
@@ -367,9 +358,7 @@ func Recvmsg(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from
 		iov[0].SetLen(len(p))
 	}
 	var rsa RawSockaddrAny
-	if n, oobn, recvflags, err = recvmsgRaw(fd, iov[:], oob, flags, &rsa); err != nil {
-		return
-	}
+	n, oobn, recvflags, err = recvmsgRaw(fd, iov[:], oob, flags, &rsa)
 	// source address is only specified if the socket is unconnected
 	if rsa.Addr.Family != AF_UNSPEC {
 		from, err = anyToSockaddr(fd, &rsa)
@@ -391,10 +380,8 @@ func RecvmsgBuffers(fd int, buffers [][]byte, oob []byte, flags int) (n, oobn in
 		}
 	}
 	var rsa RawSockaddrAny
-	if n, oobn, recvflags, err = recvmsgRaw(fd, iov, oob, flags, &rsa); err != nil {
-		return
-	}
-	if rsa.Addr.Family != AF_UNSPEC {
+	n, oobn, recvflags, err = recvmsgRaw(fd, iov, oob, flags, &rsa)
+	if err == nil && rsa.Addr.Family != AF_UNSPEC {
 		from, err = anyToSockaddr(fd, &rsa)
 	}
 	return
