@@ -4,8 +4,26 @@ metadata:
   annotations:
     artifacthub.io/category: integration-delivery
     artifacthub.io/changes: |
+      - kind: fixed
+        description: "Prevent credential leakage from URLs in logs, results, and shell traces"
+      - kind: fixed
+        description: "Prevent git option injection via revision/refspec in fetch, checkout, and show commit"
+      - kind: fixed
+        description: "Validate subdirectory and userHome params to prevent path traversal and credential copy to shared workspace; clean up credentials on step exit"
       - kind: changed
-        description: "CI now builds the git-clone base image for multiple architectures."
+        description: "Bump alpine/git base image to latest version"
+      - kind: changed
+        description: "Bump GitHub Actions dependencies (checkout, setup-go, setup-ko, setup-crane, goreleaser-action, setup-buildx-action, setup-qemu-action)"
+      - kind: changed
+        description: "Group dependabot updates and fix gomod path"
+      - kind: changed
+        description: "Drop Trusted Resources signature from release"
+      - kind: added
+        description: "Add Artifact Hub StepActions badge and browse links"
+      - kind: added
+        description: "Add DEVELOPMENT.md, CONTRIBUTING.md, and AGENTS.md documentation"
+      - kind: changed
+        description: "Make e2e tests more robust against flakes"
     artifacthub.io/license: Apache-2.0
     artifacthub.io/links: |
       - name: support
@@ -25,7 +43,7 @@ metadata:
     tekton.dev/platforms: linux/amd64,linux/s390x,linux/ppc64le,linux/arm64
     tekton.dev/tags: git
   labels:
-    app.kubernetes.io/version: 1.7.0
+    app.kubernetes.io/version: "1.7.1"
   name: git-clone
 spec:
   description: |-
@@ -101,7 +119,7 @@ spec:
       Print user-friendly error messages with actionable hints and reproduction commands when git operations fail. Set to "false" to disable.
     name: userFriendlyErrors
     type: string
-  - default: ghcr.io/tektoncd-catalog/git-clone:v1.7.0
+  - default: ghcr.io/tektoncd-catalog/git-clone:v1.7.1
     description: The image providing the git-init binary that this Task runs.
     name: gitInitImage
     type: string
@@ -179,8 +197,21 @@ spec:
         set -x
       fi
 
+      case "${PARAM_USER_HOME}" in
+        "${WORKSPACE_OUTPUT_PATH}"|"${WORKSPACE_OUTPUT_PATH}"/*)
+          printf "userHome must not be inside the output workspace, got: %s\n" "${PARAM_USER_HOME}" >&2
+          exit 1
+          ;;
+      esac
+
       # Ensure the user home directory exists (it may not in minimal images)
       mkdir -p "${PARAM_USER_HOME}"
+
+      cleanup_credentials() {
+        rm -f "${PARAM_USER_HOME}/.git-credentials" "${PARAM_USER_HOME}/.gitconfig"
+        rm -rf "${PARAM_USER_HOME}/.ssh"
+      }
+      trap cleanup_credentials EXIT
 
       if [ "${WORKSPACE_BASIC_AUTH_DIRECTORY_BOUND}" = "true" ] ; then
         cp "${WORKSPACE_BASIC_AUTH_DIRECTORY_PATH}/.git-credentials" "${PARAM_USER_HOME}/.git-credentials"
@@ -201,6 +232,17 @@ spec:
             export GIT_SSL_CAINFO="${WORKSPACE_SSL_CA_DIRECTORY_PATH}/${PARAM_CRT_FILENAME}"
          fi
       fi
+
+      if [ -n "${PARAM_SUBDIRECTORY}" ] ; then
+        case "${PARAM_SUBDIRECTORY}" in
+          /*) printf "subdirectory param must be a relative path, got: %s\n" "${PARAM_SUBDIRECTORY}" >&2; exit 1 ;;
+        esac
+        if printf "%s" "${PARAM_SUBDIRECTORY}" | grep -qE '(^|/)\.\.(/|$)'; then
+          printf "subdirectory param must not contain '..', got: %s\n" "${PARAM_SUBDIRECTORY}" >&2
+          exit 1
+        fi
+      fi
+
       CHECKOUT_DIR="${WORKSPACE_OUTPUT_PATH}/${PARAM_SUBDIRECTORY}"
 
       cleandir() {
@@ -248,7 +290,10 @@ spec:
       RESULT_COMMITTER_DATE="$(git log -1 --pretty=%ct)"
       printf "%s" "${RESULT_COMMITTER_DATE}" > "$(results.committer-date.path)"
       printf "%s" "${RESULT_SHA}" > "$(results.commit.path)"
-      printf "%s" "${PARAM_URL}" > "$(results.url.path)"
+      { set +x; } 2>/dev/null
+      REDACTED_URL="$(printf "%s" "${PARAM_URL}" | sed -E 's|://[^@/]+@|://****@|')"
+      printf "%s" "${REDACTED_URL}" > "$(results.url.path)"
+      if [ "${PARAM_VERBOSE}" = "true" ] ; then set -x; echo "results.url: ${REDACTED_URL}"; fi
     securityContext:
       runAsNonRoot: true
       runAsUser: 65532

@@ -72,7 +72,7 @@ func run(logger *zap.SugaredLogger, dir string, args ...string) (string, error) 
 		c.Dir = dir
 	}
 	if err := c.Run(); err != nil {
-		logger.Errorf("Error running git %v: %v\n%v", args, err, output.String())
+		logger.Errorf("Error running git %v: %v\n%v", redactArgs(args), err, RedactCredentials(output.String()))
 		return "", &GitError{Args: args, Dir: dir, Output: output.String(), Err: err}
 	}
 	return output.String(), nil
@@ -101,8 +101,27 @@ type RetryConfig struct {
 	MaxAttempts int
 }
 
+func validateNotOption(name, value string) error {
+	for _, part := range strings.Fields(value) {
+		if strings.HasPrefix(part, "-") {
+			return fmt.Errorf("%s %q must not start with a dash", name, part)
+		}
+	}
+	return nil
+}
+
 // Fetch fetches the specified git repository at the revision into path, using the refspec to fetch if provided.
 func Fetch(logger *zap.SugaredLogger, spec FetchSpec, retryConfig RetryConfig) error {
+	if spec.Revision != "" {
+		if err := validateNotOption("revision", spec.Revision); err != nil {
+			return err
+		}
+	}
+	if spec.Refspec != "" {
+		if err := validateNotOption("refspec", spec.Refspec); err != nil {
+			return err
+		}
+	}
 	homepath, err := homedir.Dir()
 	if err != nil {
 		logger.Errorf("Unexpected error getting the user home directory: %v", err)
@@ -210,7 +229,7 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec, retryConfig RetryConfig) e
 	// The --force parameter tells git-fetch that its ok to update an existing HEAD in a
 	// non-fast-forward manner (though this cannot be possible on initial fetch, it can help
 	// when the refspec specifies the same destination twice)
-	fetchArgs = append(fetchArgs, "origin", "--update-head-ok", "--force")
+	fetchArgs = append(fetchArgs, "origin", "--update-head-ok", "--force", "--")
 	fetchArgs = append(fetchArgs, fetchParam...)
 	if _, _, err := retryWithBackoff(
 		func() (string, error) { return run(logger, spec.Path, fetchArgs...) },
@@ -239,7 +258,7 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec, retryConfig RetryConfig) e
 	if err != nil {
 		return err
 	}
-	logger.Infof("Successfully cloned %s @ %s (%s) in path %s", trimmedURL, commit, ref, spec.Path)
+	logger.Infof("Successfully cloned %s @ %s (%s) in path %s", RedactCredentials(trimmedURL), commit, ref, spec.Path)
 	if spec.Submodules {
 		if err := submoduleFetch(logger, spec, retryConfig); err != nil {
 			return err
@@ -250,7 +269,10 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec, retryConfig RetryConfig) e
 
 // ShowCommit calls "git show ..." to get the commit SHA for the given revision
 func ShowCommit(logger *zap.SugaredLogger, revision, path string) (string, error) {
-	output, err := run(logger, path, "show", "-q", "--pretty=format:%H", revision)
+	if err := validateNotOption("revision", revision); err != nil {
+		return "", err
+	}
+	output, err := run(logger, path, "show", "-q", "--pretty=format:%H", revision, "--")
 	if err != nil {
 		return "", err
 	}
@@ -258,7 +280,7 @@ func ShowCommit(logger *zap.SugaredLogger, revision, path string) (string, error
 }
 
 func showRef(logger *zap.SugaredLogger, revision, path string) (string, error) {
-	output, err := run(logger, path, "show", "-q", "--pretty=format:%D", revision)
+	output, err := run(logger, path, "show", "-q", "--pretty=format:%D", revision, "--")
 	if err != nil {
 		return "", err
 	}
@@ -347,9 +369,9 @@ func validateGitAuth(logger *zap.SugaredLogger, credsDir, url string) {
 	}
 	urlSSHFormat := validateGitSSHURLFormat(url)
 	if sshCred && !urlSSHFormat {
-		logger.Warnf("SSH credentials have been provided but the URL(%q) is not a valid SSH URL. This warning can be safely ignored if the URL is for a public repo or you are using basic auth", url)
+		logger.Warnf("SSH credentials have been provided but the URL(%q) is not a valid SSH URL. This warning can be safely ignored if the URL is for a public repo or you are using basic auth", RedactCredentials(url))
 	} else if !sshCred && urlSSHFormat {
-		logger.Warnf("URL(%q) appears to need SSH authentication but no SSH credentials have been provided", url)
+		logger.Warnf("URL(%q) appears to need SSH authentication but no SSH credentials have been provided", RedactCredentials(url))
 	}
 }
 
@@ -432,8 +454,16 @@ func retryWithBackoff[T any](
 
 var credentialURLPattern = regexp.MustCompile(`(https?://)([^@]+)@`)
 
-func redactCredentials(s string) string {
+func RedactCredentials(s string) string {
 	return credentialURLPattern.ReplaceAllString(s, "${1}****@")
+}
+
+func redactArgs(args []string) []string {
+	redacted := make([]string, len(args))
+	for i, a := range args {
+		redacted[i] = RedactCredentials(a)
+	}
+	return redacted
 }
 
 type errorHint struct {
@@ -477,9 +507,9 @@ func FormatUserFriendlyError(spec FetchSpec, err error) string {
 		errOutput = strings.TrimSpace(gitErr.Output)
 	}
 	if errOutput != "" {
-		sb.WriteString("Error:\n  " + redactCredentials(errOutput) + "\n\n")
+		sb.WriteString("Error:\n  " + RedactCredentials(errOutput) + "\n\n")
 	} else {
-		sb.WriteString("Error:\n  " + redactCredentials(err.Error()) + "\n\n")
+		sb.WriteString("Error:\n  " + RedactCredentials(err.Error()) + "\n\n")
 	}
 
 	fullText := strings.ToLower(errOutput + " " + err.Error())
@@ -490,7 +520,7 @@ func FormatUserFriendlyError(spec FetchSpec, err error) string {
 		}
 	}
 
-	url := redactCredentials(spec.URL)
+	url := RedactCredentials(spec.URL)
 	sb.WriteString("To reproduce locally, run:\n\n")
 	sb.WriteString("  git init <dir> && cd <dir>\n")
 	fmt.Fprintf(&sb, "  git remote add origin %s\n", url)
