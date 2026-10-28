@@ -1,5 +1,5 @@
 ARG GO_BUILDER=registry.access.redhat.com/ubi10/go-toolset:latest@sha256:be70aa468168f1ecd46e56d5f362e697243bcf9d3a2d98819597e43471a5d0e4
-ARG RUNTIME=registry.access.redhat.com/ubi9/ubi-minimal:latest
+ARG UBI_RUNTIME=registry.access.redhat.com/ubi9/ubi-minimal:latest
 
 FROM $GO_BUILDER AS builder
 
@@ -12,7 +12,7 @@ ENV GODEBUG="http2server=0"
 ENV GOEXPERIMENT=strictfipsruntime
 RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
 
-FROM $RUNTIME
+FROM $UBI_RUNTIME
 ARG VERSION=nightly
 
 ENV BINARY=git-init \
