@@ -1,7 +1,12 @@
 contentOrigin:
   repofiles:
     - ./ubi.repo
-packages: [openssh-clients, git, git-lfs, shadow-utils, expat]
+packages:
+  - shadow-utils
+  - openssh-clients
+  - git
+  - git-lfs
+  - expat
 arches:
   # The list of architectures
   - aarch64
