@@ -1,7 +1,3 @@
-context:
-  containerfile:
-    file: ../dockerfiles/git-init.Dockerfile
-    stageNum: 2
 contentOrigin:
   repofiles:
     - ./ubi.repo
