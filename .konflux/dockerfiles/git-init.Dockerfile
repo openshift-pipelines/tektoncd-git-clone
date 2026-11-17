@@ -13,7 +13,7 @@ ENV GOEXPERIMENT=strictfipsruntime
 RUN cd image/git-init && go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags strictfipsruntime -v -o /tmp/tektoncd-catalog-git-clone
 
 FROM $UBI_RUNTIME
-ARG VERSION=1.24
+ARG VERSION=1.25
 
 ENV BINARY=git-init \
     KO_APP=/ko-app \
@@ -28,7 +28,7 @@ RUN chgrp -R 0 ${KO_APP} && \
 
 LABEL \
     com.redhat.component="openshift-pipelines-git-init-rhel9-container" \
-    cpe="cpe:/a:redhat:openshift_pipelines:1.24::el9" \
+    cpe="cpe:/a:redhat:openshift_pipelines:1.25::el9" \
     description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.k8s.description="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
     io.k8s.display-name="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
@@ -36,7 +36,7 @@ LABEL \
     maintainer="pipelines-extcomm@redhat.com" \
     name="openshift-pipelines/pipelines-git-init-rhel9" \
     summary="Red Hat OpenShift Pipelines tektoncd-git-clone git-init" \
-    version="v1.24.4"
+    version="v1.25.0"
 
 RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot -d /home/git -m nonroot
 USER 65532
